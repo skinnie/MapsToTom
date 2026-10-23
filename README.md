@@ -102,3 +102,7 @@ The program ends up in `dist/`.
 ```bash
 python3 -m unittest -v test_core
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
