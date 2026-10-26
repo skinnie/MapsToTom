@@ -38,9 +38,13 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
                 unfocusedContainerColor = t.surface, focusedContainerColor = t.surface),
         )
         Spacer(Modifier.height(Space.md))
-        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
             PrimaryButton("Add", { state.addText(input) { ok -> if (ok) input = "" } }, enabled = input.isNotBlank() && idle, icon = Icons.Filled.Add)
             SecondaryButton("Paste and add", { state.platform.clipboardText()?.let { state.addText(it) } }, enabled = idle, icon = Icons.Filled.ContentPaste)
+            TextButton(onClick = { state.platform.openUrl("https://www.google.com/maps") }) {
+                Icon(Icons.Filled.Map, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.xs)); Text("Open Google Maps")
+            }
             TextButton(onClick = { state.openItn() }) { Text("Open .itn") }
         }
         if (!state.platform.isAndroid) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Space.xs)) {
