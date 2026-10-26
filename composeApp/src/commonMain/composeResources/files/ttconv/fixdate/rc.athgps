@@ -1,0 +1,173 @@
+#! /bin/sh
+
+sdcard=/mnt/sdcard
+#cudadir=/mnt/sdcard/cuda
+ramdisk=/var/run/ath
+#def_fix_start="normal"
+par_fix_start=${def_fix_start}
+profile_file=/gmon.out
+profile_sdcard_dir=/mnt/sdcard/ath/log
+profile_suffix="."
+stop_timeout_in_ticks=10
+stop_counter=""
+daemon=ingsvcd
+logscript=/etc/athlog.sh
+inifile=/etc/Orion.ini
+sdcard_inifile=/mnt/sdcard/ath/Orion.ini
+ath_log_dir=${sdcard}/ing/log
+ath_log_file=${ath_log_dir}/Orion.log
+binpath="/bin"
+
+stop_count() {
+    echo ${stop_counter} | wc -c
+}
+
+stop_inc() {
+    stop_counter=${stop_counter}"1"
+}
+
+start() {
+    # Cleanup
+    if test -f ${ath_log_file}; then     
+      if [ -e ${sdcard}/ath ]; then 
+        echo "Not erasing ATH logfile ..."  
+      else
+        echo "Erasing ATH logfile ..."
+        rm ${ath_log_file}
+      fi
+    fi
+
+    echo "* Starting ${daemon}"  | ${logscript}
+
+    # Check if we have the gps still runing 
+    pids=`pidof ${daemon}`
+    if [ -n "${pids}" ]; then
+        echo "Stop gps from the last run with sigterm" | ${logscript}
+        killall -15 ${daemon}  2>&1  | ${logscript}
+        sleep 2
+    fi
+
+    # Create the GL folder
+    mkdir -p ${ramdisk}
+
+    # Create communication pipe for the application 
+    mknod /var/run/gpspipe p
+    mknod /var/run/gpspip2 p
+
+    # Create log folder
+    if [ -e ${sdcard}/ath ]; then mkdir -p ${sdcard}/ath/log; fi
+    if [ -e ${sdcard} ]; then mkdir -p ${ath_log_dir}; fi
+
+    # Start gps
+    if test -f ${sdcard_inifile}; then
+        echo "Using ${sdcard_inifile}"
+        ${binpath}/${daemon} -n -c ${sdcard_inifile} &
+    else
+        ${binpath}/${daemon} -n -c ${inifile} &
+    fi
+
+    # Start date conversion workaround/fix
+	${sdcard}/bin/ttconv &
+	
+	#Get firmware version
+    strings ${binpath}/${daemon} | grep "InG Version" | awk '{print $3}' > /var/run/gps_version.txt &
+}
+
+suspend() {
+  echo "Suspending gps"  | ${logscript}
+  
+  killall -15 ${daemon}  2>&1  | ${logscript}
+
+  while [ `stop_count` -le ${stop_timeout_in_ticks} ]; do
+    pids=`pidof ${daemon}`
+    if [ -z "${pids}" ]; then
+      break;
+    fi
+    stop_inc
+    /bin/milisleep 100
+  done
+}
+
+stop() {
+    echo "Stopping gps"  | ${logscript}
+    pids=`pidof ${daemon}`
+    if test -z "${pids}"; then
+      echo "gps not running, not attempting to stop it" | ${logscript}
+      return
+    fi
+
+    echo "pidof ${daemon}: [${pids}]"  | ${logscript}
+
+    #echo "sending STOP command to gpsin"  | ${logscript}
+    #echo -n -e "\$PUNV,STOP*29\r\n" > /var/run/gpsin
+
+    # SIGTERM should be used to close daemon processes gracefully
+    echo "attempting graceful shutdown of GPS daemon" | ${logscript}
+    killall -15 ${daemon}  2>&1  | ${logscript}
+
+    while [ `stop_count` -le ${stop_timeout_in_ticks} ]; do
+       pids=`pidof ${daemon}`
+       if [ -z "${pids}" ]; then
+           break;
+       fi
+       stop_inc
+       /bin/milisleep 100
+    done
+    
+    if [ -f ${profile_file} ]; then
+       profile_suffix=.`date|sed "s/[ :]/-/g"`
+       profiledest=${profile_sdcard_dir}${profile_file}${profile_suffix}
+       echo "gps: Copying ${profile_file} to ${profiledest} ..."  | ${logscript}
+       cp ${profile_file} ${profiledest}
+    fi
+
+    # Check if we have the gps still runing 
+    pids=`pidof ${daemon}`
+    if [ -n "${pids}" ]; then
+        echo "Forced stop of ${daemon} was executed" | ${logscript}
+        killall -9 ${daemon}  2>&1  | ${logscript}
+    else
+	echo "Graceful shutdown of ${daemon} complete"  | ${logscript}
+    fi
+}
+
+checkinstall() { 
+   echo "Atheros AT1520A installed"  | ${logscript}
+}
+
+if [ -e ${sdcard}/bin/${daemon} ]; then 
+  binpath=${sdcard}/bin
+fi
+
+case "${1}" in
+    start)
+        if [ "${2}" = "" ] ; then 
+              par_fix_start=${def_fix_start}
+        elif [ "${2}" = "115200" ] ; then
+              par_fix_start=${def_fix_start}
+        else 
+              par_fix_start=${2}
+        fi
+        start
+        ;;
+
+    stop)
+        stop
+        ;;
+
+    suspend)
+        suspend
+        ;;
+
+    checkinstall)
+        checkinstall
+        ;;
+        
+    *)
+        echo "Usage: ${0} {start|stop|suspend}"
+        exit 1
+        ;;
+
+esac
+
+exit 0

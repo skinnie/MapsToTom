@@ -1,0 +1,99 @@
+package app.mapstotom
+
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import app.mapstotom.core.DeviceFs
+import app.mapstotom.core.LocalFs
+import app.mapstotom.core.findTomTomRoots
+import app.mapstotom.core.isGoogleMapsUrl
+import app.mapstotom.core.isShortLink
+import kotlinx.coroutines.delay
+import java.awt.Desktop
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.io.File
+import java.net.URI
+import javax.swing.JFileChooser
+import javax.swing.UIManager
+
+class DesktopPlatform : Platform {
+    override val isAndroid = false
+    private var lastDir: File? = null
+
+    /** Mounted TomToms, plus a folder named in MAPSTOTOM_DEVICE (handy for testing on a copy). */
+    override fun detectDevices(): List<DeviceFs> =
+        (listOfNotNull(System.getenv("MAPSTOTOM_DEVICE")?.let(::File)?.takeIf { it.isDirectory }) + findTomTomRoots()).map { LocalFs(it) }
+
+    private fun chooser(title: String, dirs: Boolean) = JFileChooser(lastDir ?: File(System.getProperty("user.home"))).apply {
+        dialogTitle = title
+        fileSelectionMode = if (dirs) JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
+    }
+
+    override suspend fun pickFolder(purpose: FolderPurpose): DeviceFs? {
+        val c = chooser(purpose.title, dirs = true)
+        if (purpose == FolderPurpose.DEVICE) findTomTomRoots().firstOrNull()?.let { c.currentDirectory = it.parentFile; c.selectedFile = it }
+        if (c.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return null
+        lastDir = c.selectedFile.parentFile
+        return LocalFs(c.selectedFile)
+    }
+
+    override suspend fun pickFile(title: String): Pair<String, ByteArray>? {
+        val c = chooser(title, dirs = false)
+        if (c.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return null
+        lastDir = c.selectedFile.parentFile
+        return c.selectedFile.name to c.selectedFile.readBytes()
+    }
+
+    override suspend fun saveFile(suggestedName: String, data: ByteArray): String? {
+        val c = chooser("Save $suggestedName", dirs = false)
+        c.selectedFile = File(c.currentDirectory, suggestedName)
+        if (c.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return null
+        c.selectedFile.writeBytes(data)
+        lastDir = c.selectedFile.parentFile
+        return c.selectedFile.path
+    }
+
+    override fun clipboardText(): String? = runCatching {
+        Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.stringFlavor) as? String
+    }.getOrNull()
+
+    override fun openUrl(url: String) { runCatching { Desktop.getDesktop().browse(URI(url)) } }
+}
+
+fun main() {
+    runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+    application {
+        val platform = remember { DesktopPlatform() }
+        val scope = rememberCoroutineScope()
+        val state = remember { AppState(platform, scope) }
+        // Watch the clipboard: a Google Maps link copied anywhere is added once.
+        LaunchedEffect(Unit) {
+            var last = platform.clipboardText()
+            while (true) {
+                delay(1000)
+                val now = platform.clipboardText()
+                if (now != null && now != last && state.watchClipboard) {
+                    val link = now.trim()
+                    if (link.startsWith("http") && (isGoogleMapsUrl(link) || isShortLink(link))) state.addText(link)
+                }
+                last = now
+            }
+        }
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "MapsToTom",
+            icon = remember { BitmapPainter(DesktopPlatform::class.java.getResourceAsStream("/icon.png")!!.use { loadImageBitmap(it) }) },
+            state = rememberWindowState(size = DpSize(960.dp, 680.dp)),
+        ) {
+            App(state, dark = androidx.compose.foundation.isSystemInDarkTheme())
+        }
+    }
+}

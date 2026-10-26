@@ -1,0 +1,6 @@
+Version|100|
+AppName|ttconv.sh|
+AppPath|/mnt/sdcard/fixdate/|
+AppMainTitle|TTconv|
+AppPort||
+COMMAND|CMD|Start|ttconv.bmp|TTconv|

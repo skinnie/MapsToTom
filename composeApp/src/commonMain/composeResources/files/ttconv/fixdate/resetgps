@@ -1,0 +1,35 @@
+#!/bin/sh
+
+# TTconv to fix date for TomTom Rider 2013 (K4/v4/v5)
+# and TomTom devices with GL1 GPS chip
+# by treysis (treysis@gmx.net)
+#
+# This script copies the adjusted start scripts to activate and
+# initialize the NMEA converter and restarts the GPS driver
+# Will be invoked every cold boot (e.g. after PC connection)
+# by the ttn script at root directory
+
+hw_gpstype=`cat /proc/barcelona/gpstype`
+
+# Check if we are using AR1520 GPS chip (Rider 2013)
+if test "${hw_gpstype}" = "65"; then
+  rm -f /etc/rc.athgps
+  rm -f /etc/Orion.ini
+  cp -f /mnt/sdcard/fixdate/rc.athgps /etc/rc.athgps
+  cp -f /mnt/sdcard/fixdate/Orion.ini /etc/Orion.ini
+
+  /etc/rc.athgps stop
+  sleep 1
+
+  /etc/rc.athgps start
+
+# Check if we are using GL1 GPS chip
+elif (test "${hw_gpstype}" = "128") || (test "${hw_gpstype}" = "129"); then
+  rm -f /etc/rc.gltt
+  cp -f /mnt/sdcard/fixdate/rc.gltt /etc/rc.gltt
+
+  /etc/rc.gltt stop
+  sleep 1
+
+  /etc/rc.gltt start 115200
+fi

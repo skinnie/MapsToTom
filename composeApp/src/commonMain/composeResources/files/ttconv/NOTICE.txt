@@ -1,0 +1,9 @@
+TTconv v11 - NMEA date converter for TomTom devices (GPS week rollover workaround)
+Copyright treysis (treysis@gmx.net). Licensed under the GNU General Public License v3.0
+(see LICENSE-GPL-3.0.txt). Source code: https://github.com/treysis/TTconv
+
+MapsToTom ships the TTconv files unchanged, except fixdate/rc.gltt and fixdate/ttconv.sh:
+- rc.gltt restarts the converter whenever it quits, logs each restart to gl/log/ttconv.log,
+  and can log the GPS engine to gl/log/gltt.txt when the file gl/debug-gltt exists;
+- ttconv.sh (the TTconv menu button) restarts the GPS driver and the converter cleanly.
+These two modified scripts are also licensed under the GPL v3.0.

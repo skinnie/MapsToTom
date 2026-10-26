@@ -1,108 +1,151 @@
 # MapsToTom
 
-Send places and routes from Google Maps to an old TomTom (ONE, XL, GO and
-other models that show up as a USB drive with a `ttgo.bif` file).
-Made for, and tested against, the file layout of a TomTom ONE v4 running NavCore 9.541.
+Send places and routes from Google Maps to an old TomTom, and keep its GPS working.
+For TomTom ONE, XL, GO and Rider models that show up as a USB drive with a `ttgo.bif` file
+(NavCore 8 and 9). Built and tested with a TomTom ONE v4 running NavCore 9.541.
 
-It runs on Linux, macOS and Windows with plain Python 3.8+ and Tk.
-It needs no extra packages.
+One app for **Windows, macOS, Linux and Android**, with the same screens everywhere.
 
-## Run it
+<p>
+  <img src="docs/send.png" alt="Send screen: a Google Maps route as a list of stops ready to save to the TomTom" width="49%">
+  <img src="docs/gps.png" alt="GPS health screen: QuickGPSFix and the 2019 date fix both in place" width="49%">
+</p>
+<p><img src="docs/phone-gps-dark.png" alt="GPS health screen on a phone in dark mode" width="240"></p>
 
-```bash
-python3 gmaps2tomtom.py
-```
+## Get it
 
-- **Linux:** if Tk is missing, install it with `sudo apt install python3-tk`.
-- **macOS:** use the Python from python.org, which includes Tk.
-- **Windows:** use the Python from python.org, then double-click `gmaps2tomtom.py`.
+Download the latest version from the [Releases page](https://github.com/skinnie/MapsToTom/releases):
 
-## Use it
+| System | File | Notes |
+|---|---|---|
+| Windows | `MapsToTom-x.y.z.msi` | Windows may warn about an unknown publisher: *More info → Run anyway*. |
+| macOS | `MapsToTom-x.y.z.dmg` | Not signed: the first time, right-click the app → *Open*. |
+| Linux | `mapstotom_x.y.z_amd64.deb` | `sudo apt install ./mapstotom_*.deb` |
+| Android 8+ | `MapsToTom-android.apk` | Allow "install unknown apps" for your browser or file manager. |
 
-1. Plug in the TomTom and wait for it to appear as a drive. The app finds it
-   by itself, or you can press **Detect** or **Browse…**.
-2. In Google Maps, make a route or open a place, then press **Share → Copy link**.
-   With **Watch clipboard** ticked, the link is added as soon as you copy it.
-   You can also paste it into the box and press **Add**.
-3. Edit the list if you need to. You can reorder, rename by double-clicking,
-   switch a point between Stop and Via, or remove it.
-4. Save it to the TomTom:
-   - **Save route (Itinerary)** writes `itn/<name>.itn`. On the TomTom, go to
-     *Itinerary planning → Options → Load itinerary*.
-   - **Save as POIs** adds the stops to the POI category named next to the
-     button, "Google Maps" by default, in the active map folder, with a small
-     icon. Points already in that category are skipped. On the TomTom, go to *Navigate to → Point of Interest*.
-     From there you can save a POI as a Favourite.
-   - **Export .itn file…** saves the itinerary anywhere, for example to copy later.
-5. Eject the TomTom safely before unplugging it.
+The desktop versions include their own Java runtime; nothing else is needed.
 
-## What it understands
+## Connect the TomTom
+
+- **Computer:** plug it in by USB. MapsToTom finds it by itself (or press **Choose…**).
+- **Android tablet or phone:** plug the TomTom in with a USB OTG adapter. When Android shows the
+  TomTom drive, press **Choose…** in MapsToTom and pick the drive. Android remembers the choice.
+  The tablet must supply power over USB, and the TomTom must accept it as a computer: try it
+  first in the Files app.
+
+Always eject the TomTom (or switch it off) before unplugging it.
+
+## Send places and routes
+
+1. In Google Maps, make a route or open a place, then **Share**.
+   - **Android:** choose **MapsToTom** in the share menu.
+   - **Computer:** choose *Copy link*. With "Add Google Maps links as soon as I copy them" ticked,
+     the link is added at once. Or paste it into the box and press **Add**.
+2. Edit the list: reorder, rename (tap the name), switch Stop/Via, remove.
+3. Save:
+   - **Save route (Itinerary)** writes `itn/<name>.itn`.
+     On the TomTom: *Itinerary planning → Options → Load itinerary*.
+   - **Save as POIs** adds the stops to a POI category (default "Google Maps") in the active map,
+     with a pin icon. Points already in it are skipped.
+     On the TomTom: *Navigate to → Point of Interest*.
+   - **Export .itn…** saves the itinerary anywhere.
 
 | Input | Example |
 |---|---|
-| Google Maps short link | `https://maps.app.goo.gl/…` |
-| Phone share link without coordinates | `maps.app.goo.gl/…?g_st=…`, which opens `maps.google.com?q=<name, address>&ftid=…` |
-| Place ID link | `https://maps.google.com/?cid=…` |
-| Directions link, with stops and dragged via points | `https://www.google.com/maps/dir/Lisbon/Sintra/…/data=…` |
-| Place link | `https://www.google.com/maps/place/Torre+de+Belém/…` |
-| API, `q=` and old-style links | `…/maps/dir/?api=1&origin=…&destination=…`, `maps.google.com/?q=38.7,-9.1` |
+| Short link (also from the phone app) | `https://maps.app.goo.gl/…` |
+| Directions, with stops and dragged via points | `https://www.google.com/maps/dir/Lisbon/Sintra/…/data=…` |
+| Place | `https://www.google.com/maps/place/Torre+de+Belém/…` |
+| Place ID, API and old-style links | `?cid=…`, `…/dir/?api=1&origin=…&destination=…`, `?q=38.7,-9.1` |
 | Coordinates | `38.6916, -9.2160` or `38°41'29.8"N 9°12'57.6"W` |
-| Address or place name | `Praça do Comércio, Lisboa`, looked up on OpenStreetMap |
+| Address | `Praça do Comércio, Lisboa` (looked up on OpenStreetMap) |
 
-## Routes: how close to Google's route?
+**Same roads as Google:** Google links hold only the stops and dragged points, not the road
+shape, so the TomTom plans its own route between them. Tick **Follow the same roads** to add
+pass-through points along the road (from the public OSRM router, OpenStreetMap data).
+Older TomToms may not load more than 48 points.
 
-Google links contain only your stops and any points you dragged the route
-through. They don't contain the road geometry. The TomTom calculates its own
-route between those points, with its own map.
+## GPS tools
 
-If the TomTom picks different roads, tick **Follow the same roads**. The app
-then asks the public OSRM router, which uses OpenStreetMap data, for the road
-shape. It adds pass-through points along that shape, up to the total you set.
-More points keep the TomTom closer to the route, but the itinerary gets longer
-to load. Older TomToms may not accept more than 48 points, so the app warns
-above that.
+The **GPS** tab works out which GPS chip the TomTom has and offers what that chip needs.
+
+| Chip | Typical models | QuickGPSFix | 2019 date fix |
+|---|---|---|---|
+| Global Locate GL1 (Hammerhead) | ONE v4, ONE 3rd ed., XL | `lto.dat` | **TTconv** (installed by MapsToTom) |
+| Broadcom BCM4750 / GL2 (Barracuda) | GO x50, GO 950 | `lto.dat` | **glgps from NavCore 9.541** (you supply it) + **clock fix** |
+| SiRFstarIII | GO x10–x40, older ONE | `packedephemeris.ee` | GPS firmware 3.2.5 / 3.6.0 (shown, not flashed) |
+| Atheros AR1520 | Rider 2013 | — | TTconv |
+
+- **QuickGPSFix** downloads the 7-day satellite orbit prediction from TomTom's own server (the
+  same file TomTom HOME uses) and installs it. Update it weekly.
+- **TTconv** (by treysis) corrects the date the GPS reports after the April 2019 week rollover.
+  MapsToTom's version restarts the converter by itself when it stops, which is when the TomTom
+  seems to lose the satellites, and logs each restart to `gl/log/ttconv.log`.
+- **glgps 9.541**: Broadcom units are fixed by NavCore 9.541's GPS driver
+  (Broadcom GLL 2.16.201). MapsToTom can't include it; choose it from your own NavCore files and
+  MapsToTom checks it before installing. The old one is kept as `bin/glgps.orig`.
+- **Clock fix** (Broadcom units): old TomToms lose their internal clock, and this GPS engine
+  starts from it. With QuickGPSFix it then looks for satellites in the wrong place and never
+  gets a fix (deleting QuickGPSFix "fixes" it). The clock fix tells the engine to take the time
+  from the satellites first. It is built from the TomTom's own system files and written to
+  `gl/cfg/glconfig.xml`; remove it to undo.
+
+## POIs and device tools
+
+- **POIs:** install POI categories from a folder (`.ov2`, with a `.bmp` icon and an `.ogg`
+  warning sound of the same name), and see or delete the categories on the TomTom.
+- **Power button:** choose between standby (default) and switching fully off (`suicide.dat`).
+- **Backup / restore:** copy everything on the TomTom to a folder, and put it back.
+
+Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be undone.
 
 ## Online services
 
-- **Google short links:** the app follows the redirect to read the full link.
-- **Google place details:** used only for links that name a place but carry no
-  coordinates, such as links shared from the phone app. The app loads the place
-  the way the Google Maps page does, with cookie consent set to "reject all".
-- **OpenStreetMap Nominatim:** used for typed addresses, and as a fallback when
-  Google's place details give no answer. It retries without a leading business
-  name, and sends at most one request per second. These positions can be a
-  street's length away from Google's pin, so the app says to check them.
-- **OSRM demo server:** used only when **Follow the same roads** is ticked.
-
-Everything else works offline.
+- **Google:** short links are followed to the full link; for links without coordinates
+  (phone shares, place IDs) the place details are read from Google Maps, with cookie consent
+  set to "reject all".
+- **OpenStreetMap Nominatim:** addresses, and a fallback when Google gives no answer
+  (at most one request per second).
+- **OSRM demo server:** only for "Follow the same roads".
+- **TomTom** (`home.tomtom.com`): QuickGPSFix. Its certificate chains to the old
+  "DigiCert High Assurance EV Root CA", which current systems no longer trust; MapsToTom trusts
+  that one root for tomtom.com only (SHA-256 `74:31:E5:F4:…:B1:18:CF`).
 
 ## File formats
 
-- **`.itn` itinerary:** one line per point, `lon|lat|name|flag|`, with coordinates
-  multiplied by 100000 and Windows-1252 text. The flag is 4 for the departure,
-  2 for a stop or destination, and 0 for a pass-through point.
-- **`.ov2` POI file:** binary type 2 records with the record length, longitude and
-  latitude multiplied by 100000, and a zero-terminated name. New points are
-  appended to an existing file.
+- **`.itn`**: one line per point, `lon|lat|name|flag|`, coordinates ×100000, Windows-1252 text.
+  Flag 4 = departure, 2 = stop or destination, 0 = pass-through.
+- **`.ov2`**: type-2 records: type byte, record length, longitude and latitude ×100000
+  (little-endian), zero-terminated name.
 
-## Make a standalone program
+## Build it yourself
 
-Build on each operating system you want a binary for, because PyInstaller
-does not cross-compile.
+Needs JDK 17. For Android, also the Android SDK (`local.properties` with `sdk.dir=…`).
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name gmaps2tomtom gmaps2tomtom.py
+./gradlew :composeApp:run                              # run the desktop app
+./gradlew :composeApp:desktopTest                      # tests (add -Pm2t.online=1 for live TomTom download)
+./gradlew :composeApp:packageDistributionForCurrentOS  # .msi / .dmg / .deb for this system
+./gradlew :composeApp:assembleDebug                    # Android APK
 ```
 
-The program ends up in `dist/`.
+`MAPSTOTOM_DEVICE=/path/to/folder` makes the desktop app open a copy of a TomTom's files,
+for testing without the device.
 
-## Tests
+`./gradlew :composeApp:desktopTest --tests app.mapstotom.ScreenshotTest -Pm2t.shots=out -Pm2t.device=/path/to/copy`
+renders every screen, light and dark, desktop and phone width, to PNG without a display.
 
-```bash
-python3 -m unittest -v test_core
-```
+The UI follows one token theme (`ui/Theme.kt`): one accent colour, warm neutrals, a 4 dp spacing
+scale and one radius language. Every text colour pair was measured against WCAG 2.2 AA in both
+themes. Status is always an icon plus words, and destructive actions are red on the trigger and
+the confirmation alike.
 
-## License
+The code is Kotlin with Compose Multiplatform. The app logic (`composeApp/src/jvmSharedMain`)
+is shared by desktop and Android; only file pickers and USB access differ.
 
-MIT. See [LICENSE](LICENSE).
+## Credits and licences
+
+- MapsToTom: MIT licence (see `LICENSE`).
+- [TTconv](https://github.com/treysis/TTconv) by treysis: GPL-3.0. Included unchanged, except the
+  two start scripts described in `composeApp/src/commonMain/composeResources/files/ttconv/NOTICE.txt`.
+- Map data lookups: © OpenStreetMap contributors (Nominatim, OSRM).
+- MapsToTom does not activate or unlock maps.

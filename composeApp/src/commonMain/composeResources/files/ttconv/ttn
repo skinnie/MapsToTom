@@ -1,0 +1,13 @@
+#! /bin/sh
+
+# fixes date issue after WNRO on TomTom Rider 2013 (K4/v4/v5) and
+# units with GL1 GPS chip.
+/mnt/sdcard/fixdate/resetgps &
+
+# test for MiniLog
+FOUND=0
+for BASEDIR in /mnt/*; do
+  [ -f "$BASEDIR"/ttninit/bin/ttninit ] && FOUND=1 break
+done
+
+([ $FOUND = 1 ] && "$BASEDIR"/ttninit/bin/ttninit "$BASEDIR") || (/bin/ttn &)
