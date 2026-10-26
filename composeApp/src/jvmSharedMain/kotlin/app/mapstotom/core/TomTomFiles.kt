@@ -50,26 +50,7 @@ fun ov2Record(p: Point): ByteArray {
         .put(2).putInt(13 + name.size).putInt(r5(p.lon).toInt()).putInt(r5(p.lat).toInt()).put(name).array()
 }
 
-fun readOv2(data: ByteArray): List<Point> {
-    val pts = mutableListOf<Point>()
-    val bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-    var i = 0
-    while (i + 5 <= data.size) {
-        val typ = data[i].toInt() and 0xff
-        var size = bb.getInt(i + 1)
-        if (size < 5 || i.toLong() + size > data.size) break
-        if ((typ == 2 || typ == 3) && size >= 14) {
-            val lon = bb.getInt(i + 5); val lat = bb.getInt(i + 9)
-            var end = i + 13
-            while (end < i + size && data[end] != 0.toByte()) end++
-            pts += Point(String(data, i + 13, end - (i + 13), CP1252), lat / 100000.0, lon / 100000.0)
-        } else if (typ == 1) {
-            size = 21 // skipper record: fixed 21 bytes
-        }
-        i += size
-    }
-    return pts
-}
+fun readOv2(data: ByteArray): List<Point> = readOv2Contents(data).entries.map { it.toPoint() }
 
 /** A small red pin as a 24-bit BMP (the TomTom shows it next to the POI category). Magenta = transparent. */
 fun poiIconBmp(size: Int = 22): ByteArray {

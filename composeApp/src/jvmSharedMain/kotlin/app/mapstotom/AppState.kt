@@ -24,7 +24,8 @@ class DeviceInfo(val fs: DeviceFs, val bif: Map<String, String>, val mapFolder: 
     val navcore get() = bif["ApplicationVersionVersionNumber"]?.let { v -> if (v.length == 4) "${v[0]}.${v.substring(1)}" else v }
 }
 
-class PoiCategory(val name: String, val ov2: String, val bmp: String?, val ogg: String?, val count: Int)
+class PoiCategory(val name: String, val ov2: String, val bmp: String?, val ogg: String?, val count: Int,
+                  val modified: Long? = null, val isProtected: Boolean = false, val editable: Boolean = !isProtected)
 
 /** All app state and actions, shared by desktop and Android. Work runs off the UI thread. */
 class AppState(val platform: Platform, private val scope: CoroutineScope, private val net: Net = RealNet()) {
@@ -35,6 +36,9 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     val warnings = mutableStateListOf<String>()
 
     fun say(msg: String, error: Boolean = false) { status = msg; statusIsError = error }
+
+    /** Update the running task's label (only while one runs). */
+    private fun busyDetail(text: String) { if (busy != null) busy = text }
 
     private fun work(label: String, block: suspend () -> Unit) {
         if (busy != null) return
@@ -56,7 +60,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     fun detect() = work("Looking for the TomTom…") {
         val found = platform.detectDevices().firstOrNull()
-        if (found == null) { device = null; say(platform.detectNote() ?: "No TomTom found. Plug it in, or choose its drive.") } else use(found)
+        if (found == null) { device = null; say(startupNote() ?: platform.detectNote() ?: "No TomTom found. Plug it in, or choose its drive.") } else use(found)
     }
 
     fun eject() { device?.let { d -> work("Ejecting…") {
@@ -70,14 +74,52 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     }
 
     /** Use this drive now (also used by tests). */
-    fun connect(fs: DeviceFs) = use(fs)
+    fun connect(fs: DeviceFs) = use(fs, checkGps = false)
 
-    private fun use(fs: DeviceFs) {
+    private fun use(fs: DeviceFs, checkGps: Boolean = true) {
         if (!isTomTomRoot(fs)) { say("${fs.displayName} doesn't look like a TomTom (no ttgo.bif).", error = true); return }
         val bif = readBif(fs)
-        device = DeviceInfo(fs, bif, findMapFolder(fs), detectChip(fs, bif))
+        val d = DeviceInfo(fs, bif, findMapFolder(fs), detectChip(fs, bif))
+        device = d
+        if (osmCountries.isBlank()) osmCountries = countriesForMap(d.mapFolder).joinToString(", ")
         gen++
-        say("Connected: ${device!!.model}.")
+        say("Connected: ${d.model}.")
+        if (checkGps) checkQuickFix(d)
+    }
+
+    // ---------------------------------------------------------- QuickGPSFix reminder
+    /** Update QuickGPSFix by itself when it has expired or expires within a day. */
+    var autoQuickFix by mutableStateOf(platform.loadSetting("autoQuickFix") != "off")
+        private set
+
+    fun changeAutoQuickFix(on: Boolean) { autoQuickFix = on; platform.saveSetting("autoQuickFix", if (on) "on" else "off") }
+
+    /** Expiry of the QuickGPSFix last seen on the TomTom, remembered between runs. */
+    val lastQuickFixExpiry: Instant? get() = platform.loadSetting("quickFixExpiry")?.toLongOrNull()?.let(Instant::ofEpochSecond)
+
+    private fun rememberExpiry(exp: Instant?) {
+        platform.saveSetting("quickFixExpiry", exp?.epochSecond?.toString())
+        platform.scheduleQuickFixReminder(exp?.minus(java.time.Duration.ofDays(1)))
+    }
+
+    private fun checkQuickFix(d: DeviceInfo) {
+        if (d.chip.chip.quickFixProvider == null) return
+        val exp = runCatching { quickFixOnDevice(d.fs).expiry }.getOrNull()
+        rememberExpiry(exp)
+        val soon = exp == null || exp.isBefore(Instant.now().plus(java.time.Duration.ofDays(1)))
+        if (!soon) return
+        if (!autoQuickFix) { say("Connected: ${d.model}. QuickGPSFix " + (if (exp == null) "is missing" else "expires ${fmt(exp)}") + ": update it on the GPS tab."); return }
+        busyDetail("Updating QuickGPSFix…")
+        runCatching {
+            val q = downloadQuickFix(d.chip.chip, net)
+            installQuickFix(d.fs, q); rememberExpiry(q.expiry); gen++
+            say("Connected: ${d.model}. QuickGPSFix updated by itself, valid until ${fmt(q.expiry)}.")
+        }.onFailure { say("Connected: ${d.model}. QuickGPSFix needs updating but the download failed: ${it.message}", true) }
+    }
+
+    /** Shown at start when the remembered QuickGPSFix has run out. */
+    fun startupNote(): String? = lastQuickFixExpiry?.takeIf { it.isBefore(Instant.now()) }?.let {
+        "QuickGPSFix on your TomTom expired on ${fmt(it)}. Connect the TomTom to update it."
     }
 
     fun refresh() { device?.let { d -> work("Reading the TomTom…") { use(d.fs) } } }
@@ -153,12 +195,24 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         }
     }
 
-    fun openItn() = scope.launch {
-        val (name, data) = platform.pickFile("Open an itinerary (.itn)") ?: return@launch
-        val pts = readItn(data)
-        points.addAll(pts)
-        routeName = name.substringBeforeLast('.')
-        say("Loaded ${pts.size} point(s) from $name.")
+    /** Open an itinerary (.itn) or a GPX route/track (thinned to what the TomTom loads). */
+    fun openRouteFile() = scope.launch {
+        val (name, data) = platform.pickFile("Open a route (.itn or .gpx)") ?: return@launch
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                if (name.endsWith(".gpx", true) || data.take(400).toByteArray().toString(Charsets.UTF_8).contains("<gpx")) {
+                    val g = readGpx(data)
+                    Triple(gpxToPoints(g), g.name, "${g.line.size} track points → ${minOf(g.line.size, ITN_MAX)} for the TomTom" +
+                        if (g.line.size >= 2 && g.waypoints.isNotEmpty()) "; ${g.waypoints.size} waypoints left out" else "")
+                } else Triple(readItn(data), null, null)
+            }
+        }
+        r.onFailure { say("Couldn't read $name: ${it.message}", true) }.onSuccess { (pts, gName, note) ->
+            if (pts.isEmpty()) { say("No points in $name.", true); return@onSuccess }
+            points.addAll(pts)
+            routeName = (gName ?: name.substringBeforeLast('.')).take(40)
+            say("Loaded ${pts.size} point(s) from $name" + (note?.let { " ($it)" } ?: "") + ".")
+        }
     }
 
     // ---------------------------------------------------------- GPS
@@ -166,6 +220,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         val d = requireDevice()
         val q = downloadQuickFix(d.chip.chip.takeIf { it.quickFixProvider != null } ?: error("Unknown GPS chip: choose it first"), net)
         installQuickFix(d.fs, q)
+        rememberExpiry(q.expiry)
         gen++
         val warn = if (d.chip.chip == Chip.GL2 && !clockFixInstalled(d.fs)) " Tip: also install the clock fix below." else ""
         say("QuickGPSFix updated, valid until ${fmt(q.expiry)}.$warn")
@@ -282,6 +337,71 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say("Installed ${selected.size} POI categories into $map" + (if (sounds > 0) " and $sounds warning sound(s) into sounds/." else "."))
     }
 
+    // ---------------------------------------------------------- POI editing
+    fun deletePoi(c: PoiCategory, e: Ov2Entry) = work("Deleting…") {
+        val left = editPoiFile(requireDevice().fs, c.ov2) { list -> list.filterNot { sameEntry(it, e) } }
+        gen++
+        say("Deleted \"${e.name}\" from ${c.name} ($left left).")
+    }
+
+    fun renamePoi(c: PoiCategory, e: Ov2Entry, name: String) = work("Renaming…") {
+        val n = safeName(name)
+        editPoiFile(requireDevice().fs, c.ov2) { list -> list.map { if (sameEntry(it, e)) Ov2Entry(n, it.lat, it.lon) else it } }
+        gen++
+        say("Renamed to \"$n\".")
+    }
+
+    fun poiEntries(c: PoiCategory): List<Ov2Entry>? = device?.fs?.read(c.ov2)?.let(::parseOv2)
+
+    // ---------------------------------------------------------- OpenStreetMap POIs
+    var osmCountries by mutableStateOf("")
+
+    fun installOsm(types: List<OsmPoiType>) = work("Downloading from OpenStreetMap…") {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val cc = osmCountries.split(',', ' ', ';').filter { it.isNotBlank() }
+        val done = mutableListOf<String>()
+        types.forEachIndexed { i, t ->
+            progress = i to types.size
+            busyDetail("${t.label} (${i + 1} of ${types.size})…")
+            val pts = fetchOsmPois(t, cc, net)
+            val sound = if (t.warns) Res.readBytes("files/poi/warning.ogg") else null
+            writePoiCategory(d.fs, map, t.category, pts, categoryIconBmp(t.rgb, t.glyph), sound)
+            done += "${t.label} ${pts.size}"
+        }
+        progress = null
+        gen++
+        say("Installed from OpenStreetMap: ${done.joinToString(", ")}. On the TomTom: Navigate to → Point of Interest.")
+    }
+
+    // ---------------------------------------------------------- Google saved places
+    val takeoutLists = mutableStateListOf<SavedList>()
+
+    fun openTakeout() = scope.launch {
+        val (name, data) = platform.pickFile("Open your Google Takeout (.zip, or a .csv / .json from it)") ?: return@launch
+        work("Reading $name…") {
+            val lists = readTakeout(name, data)
+            withContext(Dispatchers.Main) { takeoutLists.clear(); takeoutLists.addAll(lists) }
+            say(if (lists.isEmpty()) "No saved places found in $name." else "Found ${lists.size} lists with ${lists.sumOf { it.rows.size }} places.", lists.isEmpty())
+        }
+    }
+
+    fun installTakeout(selected: List<SavedList>) = work("Looking up saved places…") {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val total = selected.sumOf { it.rows.size }
+        var base = 0
+        val notes = mutableListOf<String>()
+        for (l in selected) {
+            busyDetail("${l.name}…")
+            val (pts, missed) = resolveSaved(l, net) { i, _ -> progress = (base + i) to total }
+            base += l.rows.size
+            if (pts.isNotEmpty()) writePoiCategory(d.fs, map, "Google " + l.name, pts, categoryIconBmp(0x1A73E8, 'G'))
+            notes += "${l.name} ${pts.size}" + if (missed.isNotEmpty()) " (${missed.size} not found)" else ""
+        }
+        progress = null
+        gen++
+        say("Installed Google lists: ${notes.joinToString(", ")}.")
+    }
+
     fun deviceCategories(): List<PoiCategory> {
         val d = device ?: return emptyList()
         val map = d.mapFolder ?: return emptyList()
@@ -314,7 +434,10 @@ fun scanPoiFolder(fs: DeviceFs, dir: String = ""): List<PoiCategory> {
     fun find(base: String, ext: String) = names.firstOrNull { it.equals("$base.$ext", ignoreCase = true) }?.let { join(dir, it) }
     return names.filter { it.lowercase().endsWith(".ov2") }.map { f ->
         val base = f.dropLast(4)
-        val count = runCatching { readOv2(fs.read(join(dir, f)) ?: ByteArray(0)).size }.getOrDefault(0)
-        PoiCategory(base, join(dir, f), find(base, "bmp"), find(base, "ogg"), count)
+        val signed = names.any { it.equals("$f.dct", ignoreCase = true) }
+        val c = runCatching { readOv2Contents(fs.read(join(dir, f)) ?: ByteArray(0)) }.getOrNull()
+        val entries = c?.let { if (signed) null else parseOv2(fs.read(join(dir, f)) ?: ByteArray(0)) }
+        PoiCategory(base, join(dir, f), find(base, "bmp"), find(base, "ogg"), entries?.size ?: 0,
+            fs.modified(join(dir, f)), isProtected = signed, editable = entries != null && c.complete && !signed)
     }.sortedBy { it.name.lowercase() }
 }

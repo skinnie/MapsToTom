@@ -76,7 +76,9 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
 | Atheros AR1520 | Rider 2013 | — | TTconv |
 
 - **QuickGPSFix** downloads the 7-day satellite orbit prediction from TomTom's own server (the
-  same file TomTom HOME uses) and installs it. Update it weekly.
+  same file TomTom HOME uses) and installs it. MapsToTom updates it by itself when the TomTom is
+  connected and it expires within a day (can be switched off), and on Android reminds you the
+  day before it runs out.
 - **TTconv** (by treysis) corrects the date the GPS reports after the April 2019 week rollover.
   MapsToTom's version restarts the converter by itself when it stops, which is when the TomTom
   seems to lose the satellites, and logs each restart to `gl/log/ttconv.log`.
@@ -89,10 +91,32 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
   from the satellites first. It is built from the TomTom's own system files and written to
   `gl/cfg/glconfig.xml`; remove it to undo.
 
-## POIs and device tools
+## Routes from GPX
 
-- **POIs:** install POI categories from a folder (`.ov2`, with a `.bmp` icon and an `.ogg`
-  warning sound of the same name), and see or delete the categories on the TomTom.
+**Open .itn or .gpx** on the Send screen loads a route from Komoot, Strava, RideWithGPS or any
+GPX file. The line is cut down to the 48 points older TomToms load, keeping the points that
+shape it most (tested on real rides: at most about 200 m off the original line). Start and
+finish are stops; the rest are pass-through points the TomTom follows without announcing.
+
+## POIs
+
+- **From OpenStreetMap:** fuel stations, EV chargers, motorhome areas, campsites,
+  supermarkets, pharmacies and speed cameras, for the countries of your map. Each type becomes
+  its own category with an icon; speed cameras also get a warning beep. Downloads use the
+  public Overpass servers, which are often busy: MapsToTom tries several. Speed cameras can't
+  be installed for France, where warning of camera positions is illegal.
+- **Your Google Maps lists:** export "Saved" and "Maps (your places)" at
+  [Google Takeout](https://takeout.google.com) and open the .zip. Each list (and your starred
+  places) becomes a category "Google <list>". Places saved without coordinates are looked up.
+- **On the TomTom:** every category with its number of places, the year of the file, and a
+  note when the map already has a similar built-in category (old fuel or hotel lists usually
+  repeat what the map has, with older data). Open a category to rename or delete single places;
+  the first change keeps the original as `<name>.ov2.mapstotom-backup`. TomTom's encrypted
+  services (like Safety Cameras) are shown as protected and left alone.
+- **From a folder:** `.ov2` files with a `.bmp` icon and an `.ogg` warning sound of the same name.
+
+## Device tools
+
 - **Power button:** choose between standby (default) and switching fully off (`suicide.dat`).
 - **Backup / restore:** copy everything on the TomTom to a folder, and put it back.
 
@@ -106,6 +130,8 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
 - **OpenStreetMap Nominatim:** addresses, and a fallback when Google gives no answer
   (at most one request per second).
 - **OSRM demo server:** only for "Follow the same roads".
+- **Overpass API (OpenStreetMap):** POI downloads. Reverse lookups on Nominatim name points
+  that are only coordinates.
 - **TomTom** (`home.tomtom.com`): QuickGPSFix. Its certificate chains to the old
   "DigiCert High Assurance EV Root CA", which current systems no longer trust; MapsToTom trusts
   that one root for tomtom.com only (SHA-256 `74:31:E5:F4:…:B1:18:CF`).

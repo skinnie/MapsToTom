@@ -27,4 +27,9 @@ interface Platform {
     fun canEject(fs: DeviceFs): Boolean = false
     /** Flush and unmount; true when the TomTom can be unplugged. */
     fun eject(fs: DeviceFs): Boolean = false
+    /** Small persistent settings. */
+    fun loadSetting(key: String): String? = null
+    fun saveSetting(key: String, value: String?) {}
+    /** Remind the user (notification) at [at] to update QuickGPSFix; null cancels. Android only. */
+    fun scheduleQuickFixReminder(at: java.time.Instant?) {}
 }

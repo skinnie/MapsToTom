@@ -80,6 +80,12 @@ class MainActivity : ComponentActivity() {
             (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
                 ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()
 
+        override fun loadSetting(key: String): String? = prefs.getString(key, null)
+
+        override fun saveSetting(key: String, value: String?) { prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply() }
+
+        override fun scheduleQuickFixReminder(at: java.time.Instant?) = ReminderReceiver.schedule(this@MainActivity, at)
+
         override fun detectNote() = rootUsb.note
 
         override fun canEject(fs: DeviceFs) = fs is LocalFs && fs.root == rootUsb.dir
@@ -100,6 +106,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handle(intent)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent {
             val scope = rememberCoroutineScope()
             val state = remember { AppState(platform, scope) }

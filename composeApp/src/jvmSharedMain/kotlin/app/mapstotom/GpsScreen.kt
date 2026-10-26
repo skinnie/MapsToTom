@@ -120,6 +120,13 @@ fun ColumnScope.GpsScreen(state: AppState) {
     Column(verticalArrangement = Arrangement.spacedBy(Space.lg)) {
         Detail("QuickGPSFix",
             "Satellite orbit predictions for the next 7 days, downloaded from TomTom's own server (the same file TomTom HOME used). It speeds up the first fix. Update it weekly.") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(state.autoQuickFix, { state.changeAutoQuickFix(it) })
+                Spacer(Modifier.width(Space.sm))
+                Text("Update by itself when the TomTom is connected and it expires within a day" +
+                    if (state.platform.isAndroid) ", and remind me the day before" else "",
+                    style = MaterialTheme.typography.bodyMedium, color = t.text)
+            }
             if (v.quickFix.files.isNotEmpty()) DangerTextButton("Remove QuickGPSFix", { state.removeQuickFix() }, enabled = idle, inline = true)
         }
         when (chip) {

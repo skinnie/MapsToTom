@@ -66,6 +66,10 @@ class DesktopPlatform : Platform {
     }.getOrNull()
 
     override fun openUrl(url: String) { runCatching { Desktop.getDesktop().browse(URI(url)) } }
+
+    private val prefs = java.util.prefs.Preferences.userRoot().node("app/mapstotom")
+    override fun loadSetting(key: String): String? = prefs.get(key, null)
+    override fun saveSetting(key: String, value: String?) { if (value == null) prefs.remove(key) else prefs.put(key, value); runCatching { prefs.flush() } }
 }
 
 fun main() {

@@ -43,6 +43,7 @@ class SafFs(private val context: Context, val treeUri: Uri) : DeviceFs {
     override fun isDir(path: String) = doc(path)?.isDirectory == true
     override fun list(path: String) = doc(path)?.takeIf { it.isDirectory }?.listFiles()?.mapNotNull { it.name }?.sorted() ?: emptyList()
     override fun size(path: String) = doc(path)?.length() ?: 0L
+    override fun modified(path: String) = doc(path)?.lastModified()?.takeIf { it > 0 }
 
     override fun read(path: String): ByteArray? {
         val d = doc(path)?.takeIf { it.isFile } ?: return null

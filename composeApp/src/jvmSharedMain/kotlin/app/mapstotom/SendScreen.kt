@@ -45,7 +45,7 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
             TextButton(onClick = { state.platform.openUrl("https://www.google.com/maps") }) {
                 Icon(Icons.Filled.Map, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.xs)); Text("Open Google Maps")
             }
-            TextButton(onClick = { state.openItn() }) { Text("Open .itn") }
+            TextButton(onClick = { state.openRouteFile() }) { Text("Open .itn or .gpx") }
         }
         if (!state.platform.isAndroid) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Space.xs)) {
             Checkbox(state.watchClipboard, { state.watchClipboard = it })

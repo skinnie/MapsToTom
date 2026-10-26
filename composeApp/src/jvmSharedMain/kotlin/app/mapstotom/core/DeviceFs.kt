@@ -24,6 +24,8 @@ interface DeviceFs {
     fun rename(path: String, newName: String): Boolean
     /** Free bytes on the drive, or null if unknown. */
     fun freeSpace(): Long?
+    /** Last change time (ms since 1970), or null if unknown. */
+    fun modified(path: String): Long? = null
 }
 
 fun parentOf(path: String) = path.substringBeforeLast('/', "")
@@ -62,6 +64,7 @@ class LocalFs(val root: File) : DeviceFs {
         return f.renameTo(File(f.parentFile, newName))
     }
     override fun freeSpace() = root.usableSpace.takeIf { it > 0 }
+    override fun modified(path: String) = file(path).lastModified().takeIf { it > 0 }
 }
 
 // ------------------------------------------------------------------ TomTom layout
