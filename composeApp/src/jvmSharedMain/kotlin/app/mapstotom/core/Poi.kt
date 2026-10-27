@@ -60,7 +60,6 @@ fun buildOv2(entries: List<Ov2Entry>, other: List<ByteArray> = emptyList()): Byt
     return out.toByteArray()
 }
 
-/** What the POI screen shows for one category on the TomTom. */
 /**
  * Change one category: [edit] gets the current places and returns the new list.
  * The first edit keeps the original as <name>.ov2.mapstotom-backup (the TomTom ignores it).
@@ -101,6 +100,7 @@ private val GLYPHS = mapOf(
     'M' to listOf("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
     'S' to listOf("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
     'P' to listOf("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    'L' to listOf("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
     'G' to listOf("01110", "10001", "10000", "10111", "10001", "10001", "01111"),
     '+' to listOf("00000", "00100", "00100", "11111", "00100", "00100", "00000"),
     '!' to listOf("00100", "00100", "00100", "00100", "00100", "00000", "00100"),
@@ -112,31 +112,35 @@ private val GLYPHS = mapOf(
  */
 fun categoryIconBmp(rgb: Int, glyph: Char, size: Int = 22): ByteArray {
     val g = GLYPHS[glyph] ?: return poiIconBmp(size)
-    val rowBytes = (size * 3 + 3) and 3.inv()
-    val px = java.io.ByteArrayOutputStream()
     val c = (size - 1) / 2.0
     val scale = 2
     val gx0 = (size - 5 * scale) / 2; val gy0 = (size - 7 * scale) / 2
-    for (y in size - 1 downTo 0) { // BMP rows are bottom-up
-        var n = 0
-        for (x in 0 until size) {
-            val d = hypot(x - c, y - c)
-            val gx = (x - gx0) / scale; val gy = (y - gy0) / scale
-            val ink = x >= gx0 && y >= gy0 && gx in 0..4 && gy in 0..6 && g[gy][gx] == '1'
-            val bgr = when {
-                d > c -> intArrayOf(255, 0, 255)
-                ink -> intArrayOf(255, 255, 255)
-                d > c - 1 -> intArrayOf((rgb and 0xff) / 2, (rgb shr 8 and 0xff) / 2, (rgb shr 16 and 0xff) / 2)
-                else -> intArrayOf(rgb and 0xff, rgb shr 8 and 0xff, rgb shr 16 and 0xff)
-            }
-            bgr.forEach { px.write(it) }; n += 3
+    val px = IntArray(size * size) { i ->
+        val x = i % size; val y = i / size
+        val d = hypot(x - c, y - c)
+        val gx = (x - gx0) / scale; val gy = (y - gy0) / scale
+        val ink = x >= gx0 && y >= gy0 && gx in 0..4 && gy in 0..6 && g[gy][gx] == '1'
+        when {
+            d > c -> 0xFF00FF
+            ink -> 0xFFFFFF
+            d > c - 1 -> (rgb shr 1) and 0x7F7F7F
+            else -> rgb
         }
-        repeat(rowBytes - n) { px.write(0) }
     }
-    val pix = px.toByteArray()
+    return bmp24(size, size, px)
+}
+
+/** A 24-bit BMP from 0xRRGGBB pixels, top row first. */
+fun bmp24(w: Int, h: Int, rgb: IntArray): ByteArray {
+    val rowBytes = (w * 3 + 3) and 3.inv()
+    val pix = ByteArray(rowBytes * h)
+    for (y in 0 until h) for (x in 0 until w) {
+        val c = rgb[y * w + x]; val o = (h - 1 - y) * rowBytes + x * 3 // BMP rows are bottom-up
+        pix[o] = c.toByte(); pix[o + 1] = (c shr 8).toByte(); pix[o + 2] = (c shr 16).toByte()
+    }
     return ByteBuffer.allocate(54 + pix.size).order(ByteOrder.LITTLE_ENDIAN)
         .put('B'.code.toByte()).put('M'.code.toByte()).putInt(54 + pix.size).putShort(0).putShort(0).putInt(54)
-        .putInt(40).putInt(size).putInt(size).putShort(1).putShort(24).putInt(0).putInt(pix.size)
+        .putInt(40).putInt(w).putInt(h).putShort(1).putShort(24).putInt(0).putInt(pix.size)
         .putInt(2835).putInt(2835).putInt(0).putInt(0).put(pix).array()
 }
 

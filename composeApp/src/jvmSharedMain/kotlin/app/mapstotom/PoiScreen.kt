@@ -24,7 +24,7 @@ import java.time.ZoneId
 @Composable
 fun ColumnScope.PoiScreen(state: AppState, wide: Boolean) {
     var confirmDelete by remember { mutableStateOf<PoiCategory?>(null) }
-    ScreenHeader("Points of interest", "Fresh places from OpenStreetMap and your Google Maps lists, and a tidy-up of what the TomTom already has.")
+    ScreenHeader("Points of interest", "Fresh places from OpenStreetMap, your Google Maps lists and Garmin POI files, and a tidy-up of what the TomTom already has.")
     if (wide) {
         Row(horizontalArrangement = Arrangement.spacedBy(Space.xl)) {
             Column(Modifier.weight(6f)) { AddPois(state) }
@@ -46,6 +46,8 @@ private fun AddPois(state: AppState) {
     OsmSection(state)
     Spacer(Modifier.height(Space.xxl))
     GoogleSection(state)
+    Spacer(Modifier.height(Space.xxl))
+    GpiSection(state)
     Spacer(Modifier.height(Space.xxl))
     FolderSection(state)
 }
@@ -129,6 +131,59 @@ private fun GoogleSection(state: AppState) {
         enabled = idle && state.device != null && selected.isNotEmpty(), icon = Icons.Filled.Download)
     Spacer(Modifier.height(Space.xs))
     Text("Places saved without coordinates are looked up on Google, about one a second.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+}
+
+// ------------------------------------------------------------------ Garmin .gpi
+
+@Composable
+private fun GpiSection(state: AppState) {
+    val t = LocalTokens.current
+    val idle = state.busy == null
+    SectionTitle("From a Garmin POI file")
+    Prose("Garmin .gpi files, like iOverlander or camper POI packs. Each category becomes its own TomTom category, with the file's icon.")
+    Spacer(Modifier.height(Space.md))
+    SecondaryButton("Open .gpi file", { state.openGpi() }, enabled = idle, icon = Icons.Filled.FolderOpen)
+    val file = state.gpiFile ?: return
+    val keep = state.gpiFilter()
+    val counts = remember(file, keep != null, state.osmCountries) { file.categories.associateWith { c -> if (keep == null) c.points.size else c.points.count(keep) } }
+    val selected = remember(file) { mutableStateListOf<GpiCategory>() }
+    Spacer(Modifier.height(Space.md))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(state.gpiAreaOnly, { state.gpiAreaOnly = it })
+        Spacer(Modifier.width(Space.sm))
+        Text(if (state.gpiAreaOnly) "Only places in ${state.osmCountries.ifBlank { "your map's countries" }}" else "Whole file",
+            style = MaterialTheme.typography.bodyMedium, color = t.text)
+    }
+    if (state.gpiAreaOnly && keep == null) Text("No known area for these countries, so the whole file is used.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+    Spacer(Modifier.height(Space.sm))
+    Panel(padding = PaddingValues(horizontal = Space.sm, vertical = Space.xs)) {
+        Text(file.title, Modifier.padding(start = Space.sm, top = Space.xs), style = MaterialTheme.typography.titleSmall, color = t.text)
+        file.categories.groupBy { it.group }.forEach { (group, cats) ->
+            Text(group, Modifier.padding(start = Space.sm, top = Space.sm), style = MaterialTheme.typography.labelMedium, color = t.textMuted)
+            cats.forEach { c ->
+                val n = counts[c] ?: 0
+                Row(Modifier.fillMaxWidth().clickable(enabled = n > 0) { if (c in selected) selected.remove(c) else selected.add(c) }.padding(vertical = Space.xxs),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(c in selected && n > 0, { on -> if (on) selected.add(c) else selected.remove(c) }, enabled = n > 0)
+                    Text(c.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = if (n > 0) t.text else t.textMuted,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("$n", Modifier.padding(end = Space.sm), style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+                }
+            }
+        }
+    }
+    val chosen = selected.filter { (counts[it] ?: 0) > 0 }
+    Spacer(Modifier.height(Space.md))
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
+        PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installGpi(chosen) },
+            enabled = idle && state.device != null && chosen.isNotEmpty(), icon = Icons.Filled.Download)
+        TextButton(onClick = { selected.clear(); if (chosen.size < counts.count { it.value > 0 }) selected.addAll(file.categories.filter { (counts[it] ?: 0) > 0 }) }) {
+            Text(if (chosen.size < counts.count { it.value > 0 }) "Select all" else "Select none")
+        }
+    }
+    Spacer(Modifier.height(Space.xs))
+    Text("On the TomTom they're named after the file, like \"${file.categories.firstOrNull()?.let { state.gpiCategoryName(it) }.orEmpty()}\". Installing again replaces them.",
+        style = MaterialTheme.typography.bodySmall, color = t.textMuted)
 }
 
 // ------------------------------------------------------------------ folder

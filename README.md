@@ -100,7 +100,7 @@ finish are stops; the rest are pass-through points the TomTom follows without an
 
 ## POIs
 
-- **From OpenStreetMap:** fuel stations, EV chargers, motorhome areas, campsites,
+- **From OpenStreetMap:** fuel stations, LPG stations, EV chargers, motorhome areas, campsites,
   supermarkets, pharmacies and speed cameras, for the countries of your map. Each type becomes
   its own category with an icon; speed cameras also get a warning beep. Downloads use the
   public Overpass servers, which are often busy: MapsToTom tries several. Speed cameras can't
@@ -108,6 +108,11 @@ finish are stops; the rest are pass-through points the TomTom follows without an
 - **Your Google Maps lists:** export "Saved" and "Maps (your places)" at
   [Google Takeout](https://takeout.google.com) and open the .zip. Each list (and your starred
   places) becomes a category "Google <list>". Places saved without coordinates are looked up.
+- **From a Garmin POI file (.gpi):** files like iOverlander or camper POI packs. Pick the
+  categories you want; each becomes a TomTom category named after the file ("iOverlander Wild
+  Camping") with the file's own icon. By default only places inside your map's countries are
+  kept. Encrypted GPIs (some paid add-ons) can't be read. GPSBabel 1.9 can't read newer files
+  like iOverlander's and no longer writes `.ov2`, so this reader is MapsToTom's own.
 - **On the TomTom:** every category with its number of places, the year of the file, and a
   note when the map already has a similar built-in category (old fuel or hotel lists usually
   repeat what the map has, with older data). Open a category to rename or delete single places;
@@ -142,6 +147,10 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
   Flag 4 = departure, 2 = stop or destination, 0 = pass-through.
 - **`.ov2`**: type-2 records: type byte, record length, longitude and latitude ×100000
   (little-endian), zero-terminated name.
+- **`.gpi`** (read only): a tree of records `u16 type, u16 flags, u32 size` (+ `u32` own-data
+  size when flags & 8). Group 9 → areas 8 → places 2 (lat/lon in semicircles, name, category
+  ref 6); categories 7 and bitmaps 5 hang off the group. Text is a list of language-tagged
+  strings; the code page is in record 1.
 
 ## Build it yourself
 

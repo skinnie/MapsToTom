@@ -402,6 +402,43 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say("Installed Google lists: ${notes.joinToString(", ")}.")
     }
 
+    // ---------------------------------------------------------- Garmin POI files (.gpi)
+    var gpiFile by mutableStateOf<GpiFile?>(null)
+        private set
+    /** Keep only places inside the countries typed for OpenStreetMap (the map's area). */
+    var gpiAreaOnly by mutableStateOf(true)
+
+    fun openGpi() = scope.launch {
+        val (name, data) = platform.pickFile("Open a Garmin POI file (.gpi)") ?: return@launch
+        work("Reading $name…") {
+            val g = readGpi(data)
+            withContext(Dispatchers.Main) { gpiFile = g }
+            say("${g.title}: ${g.categories.size} categories, ${g.categories.sumOf { it.points.size }} places.")
+        }
+    }
+
+    /** The area filter in use, or null for the whole file. */
+    fun gpiFilter(): ((Point) -> Boolean)? = if (gpiAreaOnly) areaFilter(osmCountries.split(',', ' ', ';').filter { it.isNotBlank() }) else null
+
+    /** "iOverlander Wild Camping": the file's first word keeps categories from different files apart. */
+    fun gpiCategoryName(c: GpiCategory) = listOfNotNull(gpiFile?.title?.substringBefore(' ')?.takeIf { it.isNotBlank() }, c.name).joinToString(" ")
+
+    fun installGpi(selected: List<GpiCategory>) = work("Installing…") {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val keep = gpiFilter()
+        val done = mutableListOf<String>()
+        selected.forEachIndexed { i, c ->
+            progress = i to selected.size
+            val pts = if (keep == null) c.points else c.points.filter(keep)
+            if (pts.isEmpty()) return@forEachIndexed
+            writePoiCategory(d.fs, map, gpiCategoryName(c), pts, gpiIconBmp(c.icon) ?: categoryIconBmp(0x6B4E2E, 'P'))
+            done += "${c.name} ${pts.size}"
+        }
+        progress = null
+        gen++
+        say(if (done.isEmpty()) "Nothing to install: no places in the chosen countries." else "Installed: ${done.joinToString(", ")}.", done.isEmpty())
+    }
+
     fun deviceCategories(): List<PoiCategory> {
         val d = device ?: return emptyList()
         val map = d.mapFolder ?: return emptyList()
@@ -410,7 +447,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     fun deletePoiCategory(c: PoiCategory) = work("Deleting…") {
         val fs = requireDevice().fs
-        fs.delete(c.ov2); c.bmp?.let { fs.delete(it) }
+        fs.delete(c.ov2); c.bmp?.let { fs.delete(it) }; c.ogg?.let { fs.delete(it) }
         gen++
         say("Deleted POI category \"${c.name}\".")
     }

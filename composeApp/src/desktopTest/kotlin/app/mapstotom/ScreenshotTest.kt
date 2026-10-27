@@ -35,6 +35,24 @@ class ScreenshotTest {
         "!1m5!1m1!1s0xd1ed09be5d23323:0x400ebbde4903720!2m2!1d-9.3229213!2d38.8233416" +
         "!1m5!1m1!1s0xd1ec47379b79a97:0x870d3b7e1807bbc2!2m2!1d-9.4303646!2d38.6960614!3e0"
 
+    /** With -Pm2t.gpi too: a tall POI screen with that file opened. */
+    @Test fun renderGpi() {
+        val dir = out ?: return
+        val gpi = System.getProperty("m2t.gpi")?.let(::File)?.takeIf { it.isFile } ?: return
+        dir.mkdirs()
+        val p = object : Platform by FakePlatform { override suspend fun pickFile(title: String) = gpi.name to gpi.readBytes() }
+        val state = AppState(p, CoroutineScope(Dispatchers.Unconfined))
+        deviceDir?.takeIf { it.isDirectory }?.let { state.connect(LocalFs(it)) }
+        state.osmCountries = "PT, ES, AD, GI"
+        state.openGpi()
+        repeat(100) { if (state.gpiFile == null) Thread.sleep(100) }
+        val scene = ImageComposeScene(1100, 2600, Density(1f)) { App(state, dark = false, startTab = Tab.POIS) }
+        var t = 0L
+        repeat(12) { scene.render(t); t += 100_000_000; Thread.sleep(60) }
+        File(dir, "gpi-poi.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+    }
+
     @Test fun renderAllScreens() {
         val dir = out ?: return
         dir.mkdirs()

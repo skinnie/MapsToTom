@@ -75,6 +75,8 @@ class OsmTest {
         assertEquals("Galp, Leiria", osmName(mapOf("brand" to "Galp", "name" to "Posto Galp X", "addr:city" to "Leiria"), OsmPoiType.FUEL))
         assertEquals("Speed camera 50 km/h", osmName(mapOf("maxspeed" to "50"), OsmPoiType.SPEED_CAMERA))
         assertEquals("Motorhome area", osmName(emptyMap<String, String>(), OsmPoiType.MOTORHOME))
+        assertEquals("Repsol, Braga", osmName(mapOf("brand" to "Repsol", "addr:city" to "Braga"), OsmPoiType.LPG))
+        assertTrue("fuel:lpg" in overpassQuery(OsmPoiType.LPG, listOf("PT")))
     }
 
     @Test fun parsesNodesAndCentres() {
@@ -181,6 +183,20 @@ class OsmLiveTest {
             assertEquals(pts.size, parseOv2(fs.read("Map/${t.category}.ov2")!!)!!.size)
         }
         dir.deleteRecursively()
+    }
+}
+
+class OsmStage {
+    /** Download categories into <dir>/Map for copying to a TomTom by hand: -Pm2t.stage=/dir:LPG,MOTORHOME */
+    @Test fun stage() {
+        val arg = System.getProperty("m2t.stage") ?: return
+        val dir = arg.substringBeforeLast(':'); val types = arg.substringAfterLast(':').split(',').map { OsmPoiType.valueOf(it.trim()) }
+        val fs = LocalFs(File(dir))
+        for (t in types) {
+            val pts = fetchOsmPois(t, countriesForMap("Iberia"), RealNet())
+            println("${t.label}: ${pts.size}")
+            writePoiCategory(fs, "Map", t.category, pts, categoryIconBmp(t.rgb, t.glyph))
+        }
     }
 }
 

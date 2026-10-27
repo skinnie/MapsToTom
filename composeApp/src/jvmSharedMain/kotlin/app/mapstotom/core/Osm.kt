@@ -6,6 +6,7 @@ package app.mapstotom.core
  */
 enum class OsmPoiType(val label: String, val category: String, val filter: String, val rgb: Int, val glyph: Char, val warns: Boolean = false) {
     FUEL("Fuel stations", "OSM Fuel", "nwr[amenity=fuel]", 0xE07000, 'F'),
+    LPG("LPG (autogas)", "OSM LPG", "nwr[amenity=fuel][\"fuel:lpg\"=yes]", 0x0077AA, 'L'),
     EV("EV chargers", "OSM EV chargers", "nwr[amenity=charging_station]", 0x1A8F3C, 'E'),
     MOTORHOME("Motorhome areas", "OSM Motorhome areas", "nwr[tourism=caravan_site]", 0x1F5FBF, 'M'),
     CAMPSITE("Campsites", "OSM Campsites", "nwr[tourism=camp_site]", 0x2E6B2E, 'C'),
@@ -85,7 +86,7 @@ internal fun osmName(tags: Map<*, *>, type: OsmPoiType): String {
         return listOfNotNull("Speed camera", speed?.let { "$it km/h" }).joinToString(" ")
     }
     val base = when (type) {
-        OsmPoiType.FUEL, OsmPoiType.SUPERMARKET -> t("brand") ?: t("name")
+        OsmPoiType.FUEL, OsmPoiType.LPG, OsmPoiType.SUPERMARKET -> t("brand") ?: t("name")
         OsmPoiType.EV -> listOfNotNull(t("operator") ?: t("brand") ?: t("name"), t("capacity")?.let { "x$it" }).joinToString(" ").ifEmpty { null }
         else -> t("name") ?: t("brand")
     } ?: type.label.removeSuffix("s")
