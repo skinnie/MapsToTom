@@ -32,6 +32,8 @@ class GpsTest {
         val fs = tmp()
         setPowerOff(fs, true); assertTrue(powerOffEnabled(fs))
         setPowerOff(fs, false); assertFalse(powerOffEnabled(fs))
+        setStayOn(fs, true); assertTrue(stayOnEnabled(fs)); assertEquals(0, fs.read("noautosuspend.dat")!!.size)
+        setStayOn(fs, false); assertFalse(stayOnEnabled(fs))
     }
 }
 

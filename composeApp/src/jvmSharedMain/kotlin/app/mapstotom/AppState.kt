@@ -268,6 +268,11 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say(if (on) "The TomTom will switch fully off instead of standby." else "The TomTom will use standby again.")
     }
 
+    fun toggleStayOn(on: Boolean) = work("Saving…") {
+        app.mapstotom.core.setStayOn(requireDevice().fs, on); gen++
+        say(if (on) "The TomTom will stay on when car power dips. Switch it off with the power button." else "The TomTom will switch off again when external power is lost.")
+    }
+
     var progress by mutableStateOf<Pair<Int, Int>?>(null); private set
 
     fun backup() = scope.launch {

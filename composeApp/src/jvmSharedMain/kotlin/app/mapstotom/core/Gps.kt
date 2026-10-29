@@ -165,3 +165,13 @@ fun powerOffEnabled(fs: DeviceFs) = fs.exists("suicide.dat")
 fun setPowerOff(fs: DeviceFs, on: Boolean) {
     if (on) fs.write("suicide.dat", "10".toByteArray()) else if (fs.exists("suicide.dat")) fs.delete("suicide.dat")
 }
+
+/**
+ * NavCore starts a 10 s "going to switch off" countdown when external power drops, which weak car
+ * radio USB ports trigger all the time. An empty noautosuspend.dat in the card root turns that off
+ * (checked on a ONE v4 with NavCore 9.541). The TomTom then no longer switches off with the car.
+ */
+fun stayOnEnabled(fs: DeviceFs) = fs.exists("noautosuspend.dat")
+fun setStayOn(fs: DeviceFs, on: Boolean) {
+    if (on) fs.write("noautosuspend.dat", ByteArray(0)) else if (fs.exists("noautosuspend.dat")) fs.delete("noautosuspend.dat")
+}

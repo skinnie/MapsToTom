@@ -123,6 +123,9 @@ finish are stops; the rest are pass-through points the TomTom follows without an
 ## Device tools
 
 - **Power button:** choose between standby (default) and switching fully off (`suicide.dat`).
+- **Car power:** stop the 10-second "switching off" countdown that weak USB ports (like a car
+  radio's) trigger when power dips (`noautosuspend.dat`). The TomTom then no longer switches off
+  with the car.
 - **Backup / restore:** copy everything on the TomTom to a folder, and put it back.
 
 Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be undone.

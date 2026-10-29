@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mapstotom.core.powerOffEnabled
+import app.mapstotom.core.stayOnEnabled
 import app.mapstotom.ui.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,8 +24,8 @@ fun ColumnScope.DeviceScreen(state: AppState) {
     if (d == null) { ScreenHeader("Device"); NeedDevice(state); AboutFooter(state); return }
     val idle = state.busy == null
     var confirmRestore by remember { mutableStateOf(false) }
-    val info by produceState<Pair<Long?, Boolean>?>(null, d, state.gen) {
-        value = withContext(Dispatchers.IO) { runCatching { d.fs.freeSpace() to powerOffEnabled(d.fs) }.getOrNull() }
+    val info by produceState<Triple<Long?, Boolean, Boolean>?>(null, d, state.gen) {
+        value = withContext(Dispatchers.IO) { runCatching { Triple(d.fs.freeSpace(), powerOffEnabled(d.fs), stayOnEnabled(d.fs)) }.getOrNull() }
     }
 
     ScreenHeader(d.model, d.fs.displayName)
@@ -51,6 +52,19 @@ fun ColumnScope.DeviceScreen(state: AppState) {
     }
     Spacer(Modifier.height(Space.sm))
     Prose("Fully off saves the battery, but every start is a cold boot and a unit with a worn clock battery loses the time, which slows the GPS. Standby keeps the clock.")
+
+    Spacer(Modifier.height(Space.xxl))
+    Text("Car power", style = MaterialTheme.typography.headlineSmall, color = t.text)
+    Spacer(Modifier.height(Space.md))
+    val stayOn = info?.third ?: false
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(stayOn, { state.toggleStayOn(it) }, enabled = idle && info != null)
+        Spacer(Modifier.width(Space.md))
+        Text(if (stayOn) "Stays on when power drops" else "Counts down and switches off when power drops (TomTom default)",
+            Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleSmall, color = t.text)
+    }
+    Spacer(Modifier.height(Space.sm))
+    Prose("Turn on if the TomTom keeps showing a 10-second \"switching off\" countdown on a weak USB port, like a car radio's. It then no longer switches off with the car, so use the power button.")
 
     Spacer(Modifier.height(Space.xxl))
     Text("Backup", style = MaterialTheme.typography.headlineSmall, color = t.text)
