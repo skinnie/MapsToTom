@@ -55,7 +55,8 @@ class GpsTest {
         assertEquals(2047, engineWeekFrom1999(2047))
         assertEquals(1024, engineWeekFrom1999(3072))   // the next rollover, Nov 2038
         assertEquals(-1024, ltoWeekShift(lto, "Global Locate GLL 185.5001.041"))
-        assertEquals(0, ltoWeekShift(lto, "Global Locate GLL 185.5.039"))   // untested version: unchanged
+        assertEquals(-1024, ltoWeekShift(lto, "Global Locate GLL 185.5.039"))  // NavCore 7.x engine
+        assertEquals(0, ltoWeekShift(lto, "Global Locate GLL 185.4.000"))   // untested version: unchanged
         assertEquals(0, ltoWeekShift(lto, null))
     }
 
@@ -80,7 +81,7 @@ class GpsTest {
         assertEquals(-1024, ltoWeekOffset(onDevice))
         assertEquals(1418, (ltoEpochs(onDevice.files["lto.dat"]!!).first().second / week).toInt())
 
-        for ((gltt, chip) in listOf("185.5001.041" to Chip.GL2, "185.5.039" to Chip.GL1, null to Chip.GL1)) {
+        for ((gltt, chip) in listOf("185.5001.041" to Chip.GL2, "185.4.000" to Chip.GL1, null to Chip.GL1)) {
             val other = deviceWith(gltt)
             assertNull(installQuickFix(other, q, chip), "$gltt $chip")
             assertContentEquals(lto, other.read("ephem/lto.dat"), "$gltt $chip")

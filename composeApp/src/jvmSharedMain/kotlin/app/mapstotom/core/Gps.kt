@@ -97,8 +97,11 @@ fun removeQuickFix(fs: DeviceFs) {
 
 const val GPS_WEEK_SECONDS = 604_800L
 
-/** GPS programs known to have the bug, by the version string inside them. Only tested ones. */
-val LTO_WEEK_BUG_ENGINES = setOf("Global Locate GLL 185.5001.041")
+/** GPS programs known to have the bug, by the version string inside them. Only tested ones:
+ *  185.5001.041 (Mar 2008; NavCore 8.x/9.x and the modded packs) on a real ONE v4;
+ *  185.5.039 (May 2007; NavCore 7.x) in the emulator: same rejection ("not valid for 172027 hours"),
+ *  accepts the moved file, and its week-handling code is instruction-for-instruction the same. */
+val LTO_WEEK_BUG_ENGINES = setOf("Global Locate GLL 185.5001.041", "Global Locate GLL 185.5.039")
 
 /** Version of the GL1 GPS program the TomTom runs: the card's bin/gltt when there (modded systems link
  *  /bin/gltt to it), else an Outsourced.<navcore>/bin/gltt, else the one inside ttsystem. */
