@@ -67,12 +67,105 @@ fun downloadQuickFix(chip: Chip, net: Net): QuickFix {
     return QuickFix(files, expiryOf(files["ee_meta.txt"]))
 }
 
-fun installQuickFix(fs: DeviceFs, q: QuickFix) {
-    q.files.forEach { (name, data) -> fs.write("ephem/$name", data) }
+/** Put QuickGPSFix on the device. On a GL1 whose GPS program has the week bug (see [ltoWeekShift])
+ *  lto.dat's dates are first moved to that program's calendar. Returns a note when that happened. */
+fun installQuickFix(fs: DeviceFs, q: QuickFix, chip: Chip): String? {
+    var files = q.files
+    var note: String? = null
+    val lto = files["lto.dat"]
+    val shift = if (lto != null && chip == Chip.GL1) ltoWeekShift(lto, gl1EngineVersion(fs)) else 0
+    if (lto != null && shift != 0) {
+        files = files + ("lto.dat" to shiftLto(lto, shift))
+        note = "Adjusted for the 2019 week bug in this TomTom's GPS program, which would otherwise ignore it."
+    }
+    files.forEach { (name, data) -> fs.write("ephem/$name", data) }
+    return note
 }
 
 fun removeQuickFix(fs: DeviceFs) {
     listOf("lto.dat", "packedephemeris.ee", "ee_meta.txt").forEach { if (fs.exists("ephem/$it")) fs.delete("ephem/$it") }
+}
+
+// ------------------------------------------------------------------ QuickGPSFix and the 2019 week rollover (GL1)
+
+/* The GL1 GPS programs (gltt, 2007-08) count GPS weeks from August 1999 (week 1024). Since the
+ * April 2019 rollover their clock is 1024 weeks (19.6 years) behind, so they reject TomTom's
+ * lto.dat as "not valid for 172026 hours" and search the sky from an 18-year-old almanac.
+ * Moving the file's dates back by the same amount makes them use it again. The orbit data itself
+ * is not touched (it is encrypted; the GPS program decodes it). Checked in an emulator and on a
+ * real ONE v4 on 30 Oct 2026: 9-10 satellites instead of 4, fix in seconds. */
+
+const val GPS_WEEK_SECONDS = 604_800L
+
+/** GPS programs known to have the bug, by the version string inside them. Only tested ones. */
+val LTO_WEEK_BUG_ENGINES = setOf("Global Locate GLL 185.5001.041")
+
+/** Version of the GL1 GPS program the TomTom runs: the card's bin/gltt when there (modded systems link
+ *  /bin/gltt to it), else an Outsourced.<navcore>/bin/gltt, else the one inside ttsystem. */
+fun gl1EngineVersion(fs: DeviceFs): String? {
+    fs.read("bin/gltt")?.let { return glgpsVersion(it) }
+    fs.list().filter { it.startsWith("Outsourced.") }.forEach { dir -> fs.read("$dir/bin/gltt")?.let { b -> glgpsVersion(b)?.let { return it } } }
+    val ttsystem = fs.read("ttsystem") ?: return null
+    return runCatching { TtSystem.extract(ttsystem) { it == "bin/gltt" }["bin/gltt"]?.let(::glgpsVersion) }.getOrNull()
+}
+
+/** The week a program counting from week 1024 shows for real GPS week [week] (2442 -> 1418).
+ *  Holds until the next rollover in November 2038, when it gives -2048 instead. */
+fun engineWeekFrom1999(week: Int) = 1024 + Math.floorMod(week - 1024, 1024)
+
+private fun u32(d: ByteArray, o: Int) =
+    (d[o].toLong() and 0xff) or ((d[o + 1].toLong() and 0xff) shl 8) or ((d[o + 2].toLong() and 0xff) shl 16) or ((d[o + 3].toLong() and 0xff) shl 24)
+
+/** The date table of a Global Locate lto.dat: (byte offset, epoch in GPS seconds) per block.
+ *  After the 0x1c header (magic, size-8, version, MD5) come chunks of (u32 tag, u32 length); chunk
+ *  0x00bbcc00 holds kind, mode, n, n id/value pairs, then a count and count x (epoch, block offset). */
+fun ltoEpochs(lto: ByteArray): List<Pair<Int, Long>> {
+    var o = 0x1c
+    while (o + 8 <= lto.size && u32(lto, o) != 0xbbcc00L) {
+        val len = u32(lto, o + 4)
+        if (len > lto.size) return emptyList()
+        o += 8 + len.toInt()
+    }
+    if (o + 20 > lto.size) return emptyList()
+    val c = o + 8
+    val p = c + 12 + 8 * u32(lto, c + 8).toInt()
+    if (p + 4 > lto.size) return emptyList()
+    val count = u32(lto, p).toInt()
+    if (count < 0 || p + 4 + 8L * count > lto.size) return emptyList()
+    return (0 until count).map { i -> (p + 4 + 8 * i) to u32(lto, p + 4 + 8 * i) }
+}
+
+/** lto.dat with every date moved by [weeks], and its MD5 recomputed. */
+fun shiftLto(lto: ByteArray, weeks: Int): ByteArray {
+    val out = lto.copyOf()
+    val epochs = ltoEpochs(out)
+    require(epochs.isNotEmpty()) { "Unexpected lto.dat layout" }
+    for ((off, t) in epochs) {
+        val v = t + weeks * GPS_WEEK_SECONDS
+        require(v in 0..0xffffffffL) { "Date out of range" }
+        for (b in 0..3) out[off + b] = (v shr (8 * b)).toByte()
+    }
+    MessageDigest.getInstance("MD5").digest(out.copyOfRange(0x1c, out.size)).copyInto(out, 0x0c)
+    return out
+}
+
+/** Weeks to move lto.dat for the GPS program [engine]: 0 unless it is a tested one with the week bug. */
+fun ltoWeekShift(lto: ByteArray, engine: String?): Int {
+    if (engine !in LTO_WEEK_BUG_ENGINES) return 0
+    val first = ltoEpochs(lto).firstOrNull()?.second ?: return 0
+    val week = (first / GPS_WEEK_SECONDS).toInt()
+    return engineWeekFrom1999(week) - week
+}
+
+/** How far lto.dat's dates sit from its real expiry, in whole rollovers of 1024 weeks
+ *  (0 = TomTom's own file, -1024 = already moved for the week bug), or null when unknown. */
+fun ltoWeekOffset(q: QuickFix): Int? {
+    val lto = q.files["lto.dat"] ?: return null
+    val exp = q.expiry ?: return null
+    val first = ltoEpochs(lto).firstOrNull()?.second ?: return null
+    val gpsNow = exp.epochSecond - 315_964_800L + 18   // Unix to GPS seconds (18 leap seconds)
+    val diffWeeks = (first - gpsNow) / GPS_WEEK_SECONDS.toDouble()
+    return (Math.round(diffWeeks / 1024.0) * 1024).toInt()
 }
 
 // ------------------------------------------------------------------ date fix: TTconv (GL1, AR1520)

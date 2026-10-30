@@ -104,16 +104,23 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     private fun checkQuickFix(d: DeviceInfo) {
         if (d.chip.chip.quickFixProvider == null) return
-        val exp = runCatching { quickFixOnDevice(d.fs).expiry }.getOrNull()
+        val onDevice = runCatching { quickFixOnDevice(d.fs) }.getOrNull()
+        val exp = onDevice?.expiry
         rememberExpiry(exp)
         val soon = exp == null || exp.isBefore(Instant.now().plus(java.time.Duration.ofDays(1)))
-        if (!soon) return
-        if (!autoQuickFix) { say("Connected: ${d.model}. QuickGPSFix " + (if (exp == null) "is missing" else "expires ${fmt(exp)}") + ": update it on the GPS tab."); return }
+        // TomTom's file as it is (from another tool) is ignored by a GPS program with the week bug.
+        val ignored = !soon && d.chip.chip == Chip.GL1 && onDevice != null && ltoWeekOffset(onDevice) == 0 &&
+            runCatching { gl1EngineVersion(d.fs) }.getOrNull() in LTO_WEEK_BUG_ENGINES
+        if (!soon && !ignored) return
+        if (!autoQuickFix) {
+            say("Connected: ${d.model}. QuickGPSFix " + (if (ignored) "is not used by this GPS" else if (exp == null) "is missing" else "expires ${fmt(exp)}") +
+                ": update it on the GPS tab."); return
+        }
         busyDetail("Updating QuickGPSFix…")
         runCatching {
             val q = downloadQuickFix(d.chip.chip, net)
-            installQuickFix(d.fs, q); rememberExpiry(q.expiry); gen++
-            say("Connected: ${d.model}. QuickGPSFix updated by itself, valid until ${fmt(q.expiry)}.")
+            val note = installQuickFix(d.fs, q, d.chip.chip); rememberExpiry(q.expiry); gen++
+            say("Connected: ${d.model}. QuickGPSFix updated by itself, valid until ${fmt(q.expiry)}." + (note?.let { " $it" } ?: ""))
         }.onFailure { say("Connected: ${d.model}. QuickGPSFix needs updating but the download failed: ${it.message}", true) }
     }
 
@@ -219,11 +226,11 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     fun updateQuickFix() = work("Downloading QuickGPSFix…") {
         val d = requireDevice()
         val q = downloadQuickFix(d.chip.chip.takeIf { it.quickFixProvider != null } ?: error("Unknown GPS chip: choose it first"), net)
-        installQuickFix(d.fs, q)
+        val note = installQuickFix(d.fs, q, d.chip.chip)
         rememberExpiry(q.expiry)
         gen++
         val warn = if (d.chip.chip == Chip.GL2 && !clockFixInstalled(d.fs)) " Tip: also install the clock fix below." else ""
-        say("QuickGPSFix updated, valid until ${fmt(q.expiry)}.$warn")
+        say("QuickGPSFix updated, valid until ${fmt(q.expiry)}." + (note?.let { " $it" } ?: "") + warn)
     }
 
     fun removeQuickFix() = work("Removing QuickGPSFix…") {

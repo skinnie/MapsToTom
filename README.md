@@ -79,6 +79,13 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
   same file TomTom HOME uses) and installs it. MapsToTom updates it by itself when the TomTom is
   connected and it expires within a day (can be switched off), and on Android reminds you the
   day before it runs out.
+- **QuickGPSFix on GL1**: the GL1 GPS program (gltt, 2007-08) also has the 2019 week bug inside:
+  it thinks it is 1024 weeks (19.6 years) earlier, so it rejected TomTom's file as not valid yet
+  and searched the sky with an almanac from 2008. MapsToTom moves the file's dates back by the
+  same amount (the orbit data itself is untouched) for GPS program versions it has tested
+  (GLL 185.5001.041, as on NavCore 9.541 cards). On a ONE v4 that took the fix from always 4
+  satellites to 9-10, and the first fix after switching on from a minute to a few seconds. Other
+  chips and untested versions get TomTom's file as it is.
 - **TTconv** (by treysis) corrects the date the GPS reports after the April 2019 week rollover.
   MapsToTom's version restarts the converter by itself when it stops, which is when the TomTom
   seems to lose the satellites, and logs each restart to `gl/log/ttconv.log`.

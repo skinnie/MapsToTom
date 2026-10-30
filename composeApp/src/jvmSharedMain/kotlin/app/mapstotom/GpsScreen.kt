@@ -21,6 +21,8 @@ private class GpsView(
     val clockFix: Boolean,
     val glttDebug: Boolean,
     val clockLooksWrong: Boolean,
+    /** GL1 GPS program version, when it is one with the 2019 week bug. */
+    val weekBugEngine: String?,
 )
 
 private class Check(val status: Status, val title: String, val detail: String)
@@ -37,7 +39,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 GpsView(quickFixOnDevice(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
-                    d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs))
+                    d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs),
+                    if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null)
             }.getOrNull()
         }
     }
@@ -48,13 +51,19 @@ fun ColumnScope.GpsScreen(state: AppState) {
     // ---- the three checks
     val exp = v.quickFix.expiry
     val qfDamaged = v.quickFix.files["lto.dat"]?.let { !ltoValid(it) } == true
+    // A GPS program with the week bug ignores TomTom's own file (offset 0); it needs the moved one.
+    val qfIgnored = v.weekBugEngine != null && ltoWeekOffset(v.quickFix) == 0
+    val qfAdjusted = v.weekBugEngine != null && (ltoWeekOffset(v.quickFix) ?: 0) != 0
     val quick = when {
         chip.quickFixProvider == null -> Check(Status.NONE, "QuickGPSFix", "Not available for this GPS chip.")
         v.quickFix.files.isEmpty() -> Check(Status.WARN, "QuickGPSFix not installed", "The first fix takes longer without it.")
         qfDamaged -> Check(Status.BAD, "QuickGPSFix is damaged", "The lto.dat checksum fails. Update it.")
+        qfIgnored -> Check(Status.BAD, "QuickGPSFix not used by the GPS",
+            "This GPS program has the 2019 week bug and ignores TomTom's file as it is. Update it: MapsToTom adjusts it.")
         exp == null -> Check(Status.WARN, "QuickGPSFix of unknown age", "Update it to be sure.")
         exp.isBefore(Instant.now()) -> Check(Status.WARN, "QuickGPSFix expired", "Expired on ${AppState.fmt(exp)}.")
-        else -> Check(Status.OK, "QuickGPSFix up to date", "Valid until ${AppState.fmt(exp)}.")
+        else -> Check(Status.OK, "QuickGPSFix up to date",
+            "Valid until ${AppState.fmt(exp)}." + if (qfAdjusted) " Adjusted for this GPS program's 2019 week bug." else "")
     }
     val dateFix = when (chip) {
         Chip.GL1, Chip.AR1520 -> when (v.ttconv) {
@@ -119,7 +128,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
     Spacer(Modifier.height(Space.md))
     Column(verticalArrangement = Arrangement.spacedBy(Space.lg)) {
         Detail("QuickGPSFix",
-            "Satellite orbit predictions for the next 7 days, downloaded from TomTom's own server (the same file TomTom HOME used). It speeds up the first fix. Update it weekly.") {
+            "Satellite orbit predictions for the next 7 days, downloaded from TomTom's own server (the same file TomTom HOME used). It speeds up the first fix. Update it weekly." +
+                if (v.weekBugEngine != null) " This TomTom's GPS program still thinks it is 19.6 years earlier (the 2019 week bug), so MapsToTom moves the file's dates to match, or the GPS would ignore it." else "") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(state.autoQuickFix, { state.changeAutoQuickFix(it) })
                 Spacer(Modifier.width(Space.sm))
