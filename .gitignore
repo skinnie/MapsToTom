@@ -7,3 +7,5 @@ dist/
 .kotlin/
 local.properties
 composeApp/build/
+# The global ~/.gitignore drops *.jar; the Gradle wrapper must be in the repo or clones cannot build.
+!gradle/wrapper/gradle-wrapper.jar
