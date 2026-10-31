@@ -32,4 +32,6 @@ interface Platform {
     fun saveSetting(key: String, value: String?) {}
     /** Remind the user (notification) at [at] to update QuickGPSFix; null cancels. Android only. */
     fun scheduleQuickFixReminder(at: java.time.Instant?) {}
+    /** In-car link (phone plays the TomTom's Bluetooth phone). Android only. */
+    val carLink: app.mapstotom.link.CarLinkControl? get() = null
 }

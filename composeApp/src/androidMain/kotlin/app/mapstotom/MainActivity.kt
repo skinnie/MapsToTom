@@ -92,9 +92,40 @@ class MainActivity : ComponentActivity() {
 
         override fun eject(fs: DeviceFs) = canEject(fs) && rootUsb.eject()
 
+        override val carLink = object : app.mapstotom.link.CarLinkControl {
+            override fun start() = withBluetoothPermission { LinkService.start(this@MainActivity) }
+            override fun stop() = LinkService.stop(this@MainActivity)
+            override fun makeVisible() = withBluetoothPermission {
+                runCatching {
+                    startActivity(Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
+                        .putExtra(android.bluetooth.BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300))
+                }
+            }
+        }
+
         override fun openUrl(url: String) {
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         }
+    }
+
+    private var afterBluetoothGrant: (() -> Unit)? = null
+
+    /** Runs [action] once the Bluetooth permissions (Android 12+) are granted. */
+    private fun withBluetoothPermission(action: () -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 31) { action(); return }
+        val need = arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT, android.Manifest.permission.BLUETOOTH_ADVERTISE)
+            .filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (need.isEmpty()) { action(); return }
+        afterBluetoothGrant = action
+        requestPermissions(need.toTypedArray(), BT_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != BT_REQUEST) return
+        val action = afterBluetoothGrant; afterBluetoothGrant = null
+        if (grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) action?.invoke()
+        else app.mapstotom.link.CarLinkState.log("Bluetooth permission refused: the car link needs it")
     }
 
     private fun displayName(uri: Uri): String =
@@ -131,4 +162,6 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT)?.let { shared.value = it }
     }
+
+    private companion object { const val BT_REQUEST = 42 }
 }

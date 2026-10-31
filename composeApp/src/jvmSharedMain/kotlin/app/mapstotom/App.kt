@@ -20,6 +20,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     GPS("GPS", Icons.Filled.SatelliteAlt),
     POIS("POIs", Icons.Filled.Place),
     DEVICE("Device", Icons.Filled.Tune),
+    CAR("Car", Icons.Filled.DirectionsCar),
 }
 
 @Composable
@@ -27,6 +28,7 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
     MapsToTomTheme(dark) {
         val t = LocalTokens.current
         var tab by remember { mutableStateOf(startTab) }
+        val tabs = remember { Tab.entries.filter { it != Tab.CAR || state.platform.carLink != null } }
         LaunchedEffect(Unit) { if (state.device == null) state.detect() }
         BoxWithConstraints(Modifier.fillMaxSize().background(t.page)) {
             val wide = maxWidth >= 720.dp
@@ -35,7 +37,7 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
                 if (wide) {
                     NavigationRail(containerColor = t.page, modifier = Modifier.fillMaxHeight()) {
                         Spacer(Modifier.height(Space.lg))
-                        Tab.entries.forEach { item ->
+                        tabs.forEach { item ->
                             NavigationRailItem(
                                 selected = tab == item, onClick = { tab = item },
                                 icon = { Icon(item.icon, null) }, label = { Text(item.label) },
@@ -57,6 +59,7 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
                                 Tab.GPS -> GpsScreen(state)
                                 Tab.POIS -> PoiScreen(state, wide)
                                 Tab.DEVICE -> DeviceScreen(state)
+                                Tab.CAR -> CarScreen(state)
                             }
                         }
                         Column(
@@ -69,7 +72,7 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
                     StatusLine(state, gutter)
                     if (!wide) {
                         NavigationBar(containerColor = t.surface, tonalElevation = 0.dp) {
-                            Tab.entries.forEach { item ->
+                            tabs.forEach { item ->
                                 NavigationBarItem(
                                     selected = tab == item, onClick = { tab = item },
                                     icon = { Icon(item.icon, null) }, label = { Text(item.label) },
