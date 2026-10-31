@@ -34,4 +34,6 @@ interface Platform {
     fun scheduleQuickFixReminder(at: java.time.Instant?) {}
     /** In-car link (phone plays the TomTom's Bluetooth phone). Android only. */
     val carLink: app.mapstotom.link.CarLinkControl? get() = null
+    /** Private app storage (Android: files dir); the car link keeps installed fuel sets and logins there. */
+    val dataDir: java.io.File? get() = null
 }

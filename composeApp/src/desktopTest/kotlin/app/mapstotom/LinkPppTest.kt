@@ -198,13 +198,13 @@ class LinkPppTest {
         }
 
         /** SYN, one request, read everything (dropping one segment once), FIN. Returns the bytes received. */
-        fun httpGet(dst: ByteArray, port: Int, dropOne: Boolean): ByteArray {
+        fun httpGet(dst: ByteArray, port: Int, dropOne: Boolean, path: String = "/x"): ByteArray {
             val iss = 1000L
             tcp(dst, port, 0x02, iss, 0)
             val synAck = tcpIn(dst)
             assertTrue(synAck.flags and 0x12 == 0x12 && synAck.ack == iss + 1, "SYN-ACK")
             var rcv = (synAck.seq + 1) and 0xffffffffL
-            val req = "GET /x HTTP/1.0\r\nHost: s\r\n\r\n".toByteArray()
+            val req = "GET $path HTTP/1.0\r\nHost: s\r\n\r\n".toByteArray()
             tcp(dst, port, 0x18, iss + 1, rcv, req)
             val got = java.io.ByteArrayOutputStream()
             var fin = false; var dropped = !dropOne
@@ -286,5 +286,34 @@ class LinkPppTest {
         var ack = false
         while (!ack) { val f = assertNotNull(c.recv()); ack = f.first == Hdlc.LCP && f.second[0].toInt() == 6 }
         assertTrue(log.any { it.startsWith("ppp: up") })
+    }
+
+    /** Whole chain: AT dial -> PPP -> TCP to 192.168.77.1:8080 -> the in-app LiveServer (golden /logon reply). */
+    @Test fun dialThenLiveServer() {
+        val offline = object : app.mapstotom.core.Net {
+            override fun get(url: String, headers: Map<String, String>, followRedirects: Boolean, timeoutMs: Int) = error("offline")
+        }
+        val dir = java.nio.file.Files.createTempDirectory("carlink").toFile()
+        val live = app.mapstotom.link.live.LiveServer(offline, { null }, app.mapstotom.link.StoredFuelSets(dir, offline),
+            app.mapstotom.link.FileLiveStore(dir))
+        val host = object : LinkHost {
+            override fun local(port: Int) = if (port == LinkAddr.LIVE_PORT) live else null
+            override fun connect(ip: ByteArray, port: Int): Socket? = null
+            override fun resolve(name: String) = emptyList<ByteArray>()
+            override fun log(line: String) { log += line }
+        }
+        val toPhone = Pipe(); val toTomTom = Pipe()
+        thread(isDaemon = true) { app.mapstotom.link.LinkWiring.runSession(toPhone.input, toTomTom.output, host) }
+        for ((cmd, want) in listOf("ATE0\r" to "OK", "ATD*99***1#\r" to "CONNECT\r\n")) {
+            toPhone.output.write(cmd.toByteArray())
+            val sb = StringBuilder(); val end = System.currentTimeMillis() + 3000
+            while (want !in sb && System.currentTimeMillis() < end) { val ch = toTomTom.input.read(); if (ch < 0) break; sb.append(ch.toChar()) }
+            assertTrue(want in sb, "$cmd -> $sb")
+        }
+        val c = Client(toPhone, toTomTom)
+        c.negotiate()
+        val resp = c.httpGet(LinkAddr.PHONE, LinkAddr.LIVE_PORT, dropOne = true, path = "/logon?uid=Z00000T00001&body=x")
+        val golden = javaClass.getResourceAsStream("/goldens/04_logon.resp")!!.readBytes()
+        assertContentEquals(golden, bodyOf(resp))
     }
 }

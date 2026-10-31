@@ -24,11 +24,11 @@ fun ColumnScope.CarScreen(state: AppState) {
     val log by CarLinkState.log.collectAsState()
     val requests by CarLinkState.requests.collectAsState()
     var key by remember { mutableStateOf(state.platform.loadSetting(CarLinkSettings.TRAFFIC_KEY).orEmpty()) }
-    var region by remember { mutableStateOf(state.platform.loadSetting(CarLinkSettings.REGION) ?: "PT") }
 
     ScreenHeader("Car link", "Live services in the car through this phone")
     Prose("The TomTom connects to this phone over Bluetooth as if it were its mobile phone, and the app answers its Live " +
-        "services itself: traffic, weather, fuel prices. Nothing to host; the phone's mobile data is used, a few KB per update.")
+        "services itself: traffic, weather, fuel prices. Nothing to host; the phone's mobile data is used, a few KB per update. " +
+        "Fuel prices come for the set installed from this phone (POIs tab), refreshed from the same sources.")
 
     Spacer(Modifier.height(Space.xl))
     Panel(Modifier.widthIn(max = Space.measure)) {
@@ -51,9 +51,6 @@ fun ColumnScope.CarScreen(state: AppState) {
     OutlinedTextField(key, { key = it.trim(); state.platform.saveSetting(CarLinkSettings.TRAFFIC_KEY, key.ifEmpty { null }) },
         Modifier.widthIn(max = 420.dp).fillMaxWidth(), label = { Text("TomTom API key") }, singleLine = true,
         visualTransformation = PasswordVisualTransformation())
-    Spacer(Modifier.height(Space.sm))
-    OutlinedTextField(region, { v -> region = v.uppercase().take(2); state.platform.saveSetting(CarLinkSettings.REGION, region) },
-        Modifier.width(160.dp), label = { Text("Country") }, supportingText = { Text("2 letters, like PT") }, singleLine = true)
 
     Spacer(Modifier.height(Space.xxl))
     Text("First time", style = MaterialTheme.typography.headlineSmall, color = t.text)

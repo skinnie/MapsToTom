@@ -138,6 +138,26 @@ finish are stops; the rest are pass-through points the TomTom follows without an
   services (like Safety Cameras) are shown as protected and left alone.
 - **From a folder:** `.ov2` files with a `.bmp` icon and an `.ogg` warning sound of the same name.
 
+## Car link (Android, experimental)
+
+The phone plays the TomTom's Bluetooth mobile phone, so a NavCore 9 TomTom gets Live services in the
+car with nothing to host: the app is the modem (Bluetooth Dial-up Networking, AT commands), runs the
+PPP link itself, and answers the Live services on 192.168.77.1:8080 from public data:
+
+- **Traffic:** TomTom's traffic incidents, with your own free key from developer.tomtom.com
+  (Car tab). Without a key the TomTom gets no incidents.
+- **Weather:** Open-Meteo, no key.
+- **Fuel prices:** today's prices for the fuel set installed from this phone (POIs tab), from the
+  same open sources. Portugal's source is slow, so its first answer of the hour may come late.
+- Anything else the TomTom opens goes to the internet through the phone.
+
+The TomTom's card needs, once: a NavCore patched for the link and discovery files pointing at
+`192.168.77.1:8080` (made by the go950-navcore-9541 tools). Then: Car tab, Start, Make phone visible,
+and pair from the TomTom's phone menu with PIN 0000. Android shows a notification while the link runs.
+Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for
+byte, plus a whole dial-up session); the same design was verified on a real ONE v4 with a laptop as
+the phone. Not yet tried with an Android phone.
+
 ## Device tools
 
 - **Power button:** choose between standby (default) and switching fully off (`suicide.dat`).

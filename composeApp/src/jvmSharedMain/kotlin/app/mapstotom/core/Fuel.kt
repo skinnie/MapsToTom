@@ -612,9 +612,15 @@ const val FUEL_SET_NAME = "FuelPrices"
  * Install (or replace) the fuel set in the map folder. Other fuel sets there are renamed to *.mapstotom-old,
  * because the TomTom only uses the first one. The TomTom finds a new set at its next start.
  */
+/** The set id MapsToTom writes in the .ov2 header for this map folder (the TomTom sends it back when asking for prices). */
+fun fuelSetId(mapDir: String) = CRC32().run { update("MapsToTom/$mapDir".toByteArray()); (value % 1_000_000_000L).toInt() }
+
+/** Station order in the .ov2 (the .fpf and the phone's price replies follow it). */
+fun fuelSetOrder(stations: List<FuelStation>) = stations.sortedBy { it.sortKey }
+
 fun installFuelPrices(fs: DeviceFs, mapDir: String, stations: List<FuelStation>, type: FuelType, time: Instant = Instant.now()): String {
     require(stations.isNotEmpty()) { "No stations to install" }
-    val rows = stations.sortedBy { it.sortKey }
+    val rows = fuelSetOrder(stations)
     val ov2 = join(mapDir, "$FUEL_SET_NAME.ov2")
     for (old in findFuelSets(fs, mapDir)) {
         if (old.ov2.equals(ov2, ignoreCase = true)) continue
@@ -624,7 +630,7 @@ fun installFuelPrices(fs: DeviceFs, mapDir: String, stations: List<FuelStation>,
             fs.rename(p, target)
         }
     }
-    val setId = CRC32().run { update("MapsToTom/$mapDir".toByteArray()); (value % 1_000_000_000L).toInt() }
+    val setId = fuelSetId(mapDir)
     fs.write(ov2, buildFuelOv2(rows, setId))
     fs.write(join(mapDir, "$FUEL_SET_NAME.fpf"), buildFpf(type, rows.map { it.prices[type.code] ?: 0 }, fuelArea(rows), time))
     return ov2

@@ -39,6 +39,4 @@ object CarLinkState {
 object CarLinkSettings {
     /** The user's own TomTom Traffic API key (developer.tomtom.com, free tier); traffic is off without it. */
     const val TRAFFIC_KEY = "carLink.tomtomKey"
-    /** Region code for traffic, like PT. */
-    const val REGION = "carLink.region"
 }

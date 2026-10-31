@@ -92,6 +92,8 @@ class MainActivity : ComponentActivity() {
 
         override fun eject(fs: DeviceFs) = canEject(fs) && rootUsb.eject()
 
+        override val dataDir: java.io.File get() = filesDir
+
         override val carLink = object : app.mapstotom.link.CarLinkControl {
             override fun start() = withBluetoothPermission { LinkService.start(this@MainActivity) }
             override fun stop() = LinkService.stop(this@MainActivity)

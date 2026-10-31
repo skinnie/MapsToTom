@@ -430,6 +430,8 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         progress = null
         busyDetail("Writing to the TomTom…")
         installFuelPrices(d.fs, map, stations, type, time)
+        // So the car link can send today's prices for this set later.
+        platform.dataDir?.let { runCatching { app.mapstotom.link.StoredFuelSets.record(java.io.File(it, "carlink"), fuelSetId(map), sources, fuelSetOrder(stations)) } }
         gen++
         val sold = stations.count { (it.prices[type.code] ?: 0) > 0 }
         say("Fuel prices installed: ${"%,d".format(stations.size)} stations, $sold with ${type.label}. " +
