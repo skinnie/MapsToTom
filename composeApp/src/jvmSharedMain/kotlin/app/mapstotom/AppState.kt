@@ -146,22 +146,35 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     var firstIsDeparture by mutableStateOf(true)
     var followRoads by mutableStateOf(false)
     var shapeTotal by mutableStateOf(30)
-    /** Desktop: add Google Maps links copied to the clipboard. */
+    /** Roads to stay off when following the roads (from a ViaMichelin link's route options). */
+    var avoid by mutableStateOf(Avoid())
+    /** Desktop: add Google Maps and ViaMichelin links copied to the clipboard. */
     var watchClipboard by mutableStateOf(true)
 
     fun addText(text: String, onDone: (Boolean) -> Unit = {}) {
         if (text.isBlank()) return
         work("Reading the link…") {
             val r = parseInput(text, net)
+            val linkAvoid = r.avoid?.takeIf { it.any && r.points.isNotEmpty() }
             withContext(Dispatchers.Main) {
                 points.addAll(r.points)
                 warnings.clear(); warnings.addAll(r.warnings)
                 if (points.isNotEmpty() && (routeName == "Route" || routeName.isBlank())) routeName = points.last().name.take(40)
+                // the TomTom only stays off those roads if the route is pinned to them
+                if (linkAvoid != null) { avoid = linkAvoid; followRoads = true }
             }
-            say(if (r.points.isEmpty()) "Nothing found in that text." else "Added ${r.points.size} point(s).", r.points.isEmpty())
+            val msg = when {
+                r.points.isEmpty() -> "Nothing found in that text."
+                linkAvoid != null -> "Added ${r.points.size} point(s). The route avoids ${linkAvoid.label()}, so " +
+                    "\"Follow the same roads\" is on: it pins the TomTom to a route without them."
+                else -> "Added ${r.points.size} point(s)."
+            }
+            say(msg, r.points.isEmpty())
             onDone(r.points.isNotEmpty())
         }
     }
+
+    fun clearPoints() { points.clear(); warnings.clear(); avoid = Avoid() }
 
     fun move(i: Int, delta: Int) {
         val j = i + delta
@@ -178,7 +191,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     private fun routePoints(): List<Point> {
         val pts = points.toList()
         if (!followRoads) return pts
-        return addShapingPoints(pts, shapeTotal, net)
+        return addShapingPoints(pts, shapeTotal, net, avoid)
     }
 
     fun saveRoute() = work("Saving the route…") {

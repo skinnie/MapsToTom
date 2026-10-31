@@ -1,10 +1,11 @@
 # MapsToTom
 
-Send places and routes from Google Maps to an old TomTom, and keep its GPS working.
+Send places and routes from Google Maps or ViaMichelin to an old TomTom, and keep its GPS working.
 For TomTom ONE, XL, GO and Rider models that show up as a USB drive with a `ttgo.bif` file
 (NavCore 8 and 9). Built and tested with a TomTom ONE v4 running NavCore 9.541.
 
-One app for **Windows, macOS, Linux and Android**, with the same screens everywhere.
+One app for **Windows, macOS, Linux and Android**, with the same screens everywhere. It replaces the
+first MapsToTom, a small Python script for the desktop (still in the git history).
 
 <p>
   <img src="docs/send.png" alt="Send screen: a Google Maps route as a list of stops ready to save to the TomTom" width="49%">
@@ -14,7 +15,8 @@ One app for **Windows, macOS, Linux and Android**, with the same screens everywh
 
 ## Get it
 
-Download the latest version from the [Releases page](https://github.com/skinnie/MapsToTom/releases):
+Download the latest version from the [Releases page](https://github.com/skinnie/MapsToTom/releases)
+(GitHub builds these files when a version is tagged; until the first one, [build it yourself](#build-it-yourself)):
 
 | System | File | Notes |
 |---|---|---|
@@ -39,8 +41,11 @@ Always eject the TomTom (or switch it off) before unplugging it.
 
 1. In Google Maps, make a route or open a place, then **Share**.
    - **Android:** choose **MapsToTom** in the share menu.
-   - **Computer:** choose *Copy link*. With "Add Google Maps links as soon as I copy them" ticked,
-     the link is added at once. Or paste it into the box and press **Add**.
+   - **Computer:** choose *Copy link*. With "Add Google Maps and ViaMichelin links as soon as I copy
+     them" ticked, the link is added at once. Or paste it into the box and press **Add**.
+   - **ViaMichelin:** plan the route on the website, then copy the whole address from the browser's
+     address bar and paste it. Its stops come in order, and its route option (such as *avoid tolls*)
+     is kept: see "Same roads" below.
 2. Edit the list: reorder, rename (tap the name), switch Stop/Via, remove.
 3. Save:
    - **Save route (Itinerary)** writes `itn/<name>.itn`.
@@ -58,10 +63,14 @@ Always eject the TomTom (or switch it off) before unplugging it.
 | Place ID, API and old-style links | `?cid=…`, `…/dir/?api=1&origin=…&destination=…`, `?q=38.7,-9.1` |
 | Coordinates | `38.6916, -9.2160` or `38°41'29.8"N 9°12'57.6"W` |
 | Address | `Praça do Comércio, Lisboa` (looked up on OpenStreetMap) |
+| ViaMichelin route (the address bar) | `https://www.viamichelin.pt/routes/results?…&itinerary=…&tripConstraint=NO_TOLL` |
 
-**Same roads as Google:** Google links hold only the stops and dragged points, not the road
-shape, so the TomTom plans its own route between them. Tick **Follow the same roads** to add
-pass-through points along the road (from the public OSRM router, OpenStreetMap data).
+**Same roads:** Google and ViaMichelin links hold only the stops (and Google's dragged points), not
+the road shape, so the TomTom plans its own route between them. Tick **Follow the same roads** to
+add pass-through points along the road (from the public OSRM router, OpenStreetMap data).
+When a ViaMichelin route avoids tolls, motorways, ferries or border crossings, MapsToTom ticks it
+for you and takes the road from the Valhalla router instead, which can avoid them; the pass-through
+points then keep the TomTom off those roads too. Low-emission zones can't be avoided this way.
 Older TomToms may not load more than 48 points.
 
 ## GPS tools
@@ -152,8 +161,10 @@ PPP link itself, and answers the Live services on 192.168.77.1:8080 from public 
 - Anything else the TomTom opens goes to the internet through the phone.
 
 The TomTom's card needs, once: a NavCore patched for the link and discovery files pointing at
-`192.168.77.1:8080` (made by the go950-navcore-9541 tools). Then: Car tab, Start, Make phone visible,
-and pair from the TomTom's phone menu with PIN 0000. Android shows a notification while the link runs.
+`192.168.77.1:8080`. The tools that make them aren't published yet, so for now the car link is for
+TomToms already set up. Then: Car tab, Start, Make phone visible, and pair from the TomTom's phone
+menu with PIN 0000. Android shows a notification while the link runs. Phones that already offer
+their own Bluetooth dial-up (some Samsungs) may be picked instead of MapsToTom.
 Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for
 byte, plus a whole dial-up session); the same design was verified on a real ONE v4 with a laptop as
 the phone. Not yet tried with an Android phone.
@@ -176,6 +187,8 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
 - **OpenStreetMap Nominatim:** addresses, and a fallback when Google gives no answer
   (at most one request per second).
 - **OSRM demo server:** only for "Follow the same roads".
+- **Valhalla** (`valhalla1.openstreetmap.de`, run by FOSSGIS): "Follow the same roads" when the route
+  must avoid tolls, motorways, ferries or borders.
 - **Overpass API (OpenStreetMap):** POI downloads. Reverse lookups on Nominatim name points
   that are only coordinates.
 - **Fuel prices:** DGEG (`precoscombustiveis.dgeg.gov.pt`, one request per district),
@@ -231,7 +244,7 @@ is shared by desktop and Android; only file pickers and USB access differ.
 - MapsToTom: MIT licence (see `LICENSE`).
 - [TTconv](https://github.com/treysis/TTconv) by treysis: GPL-3.0. Included unchanged, except the
   two start scripts described in `composeApp/src/commonMain/composeResources/files/ttconv/NOTICE.txt`.
-- Map data lookups: © OpenStreetMap contributors (Nominatim, OSRM).
+- Map data lookups and routing: © OpenStreetMap contributors (Nominatim, OSRM, Valhalla).
 - Fuel prices: open data of DGEG (Portugal), MITECO (Spain), the French Ministry of the Economy
   (prix-carburants), MIMIT (Italy, IODL 2.0), the Croatian Ministry of Economy, goriva.si (Slovenia)
   and E-Control (Austria).

@@ -15,6 +15,7 @@ import app.mapstotom.core.LocalFs
 import app.mapstotom.core.findTomTomRoots
 import app.mapstotom.core.isGoogleMapsUrl
 import app.mapstotom.core.isShortLink
+import app.mapstotom.core.isViaMichelinUrl
 import kotlinx.coroutines.delay
 import java.awt.Desktop
 import java.awt.Toolkit
@@ -86,7 +87,8 @@ fun main() {
                 val now = platform.clipboardText()
                 if (now != null && now != last && state.watchClipboard) {
                     val link = now.trim()
-                    if (link.startsWith("http") && (isGoogleMapsUrl(link) || isShortLink(link))) state.addText(link)
+                    if (link.startsWith("http") && (isGoogleMapsUrl(link) || isShortLink(link) ||
+                            (isViaMichelinUrl(link) && "itinerary=" in link))) state.addText(link)
                 }
                 last = now
             }

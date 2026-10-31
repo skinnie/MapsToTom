@@ -125,11 +125,8 @@ private fun haversine(a: Pair<Double, Double>, b: Pair<Double, Double>): Double 
     return 2 * r * asin(sqrt(h))
 }
 
-/** Insert extra pass-through points along the driving route so the TomTom follows the same roads.
- *  Road geometry comes from the public OSRM demo server (OpenStreetMap data). */
-fun addShapingPoints(points: List<Point>, total: Int, net: Net): List<Point> {
-    val base = points.filter { it.kind != Kind.SHAPE }
-    if (base.size < 2 || total <= base.size) return base
+/** Driving route line (lat, lon) and leg lengths in metres from the public OSRM demo server (OpenStreetMap data). */
+private fun osrmLine(base: List<Point>, net: Net): Pair<List<Pair<Double, Double>>, List<Double>> {
     val coords = base.joinToString(";") { "%.6f,%.6f".format(java.util.Locale.ROOT, it.lon, it.lat) }
     val r = net.get("https://router.project-osrm.org/route/v1/driving/$coords?overview=full&geometries=geojson",
         mapOf("User-Agent" to USER_AGENT), timeoutMs = 20_000)
@@ -140,6 +137,15 @@ fun addShapingPoints(points: List<Point>, total: Int, net: Net): List<Point> {
         val c = it as List<*>; (c[1] as Number).toDouble() to (c[0] as Number).toDouble()
     }
     val legLen = (route["legs"] as List<*>).map { max(((it as Map<*, *>)["distance"] as Number).toDouble(), 1.0) }
+    return line to legLen
+}
+
+/** Insert extra pass-through points along the driving route so the TomTom follows the same roads.
+ *  Road geometry from OSRM, or from Valhalla when roads must be avoided (both OpenStreetMap data). */
+fun addShapingPoints(points: List<Point>, total: Int, net: Net, avoid: Avoid = Avoid()): List<Point> {
+    val base = points.filter { it.kind != Kind.SHAPE }
+    if (base.size < 2 || total <= base.size) return base
+    val (line, legLen) = if (avoid.any) valhallaLine(base, avoid, net) else osrmLine(base, net)
     val totalLen = legLen.sum()
     val extra = total - base.size
     val wpIdx = mutableListOf(0)

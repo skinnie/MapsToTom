@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.mapstotom.core.Avoid
 import app.mapstotom.core.ITN_MAX
 import app.mapstotom.core.Point
 import app.mapstotom.ui.*
@@ -24,8 +25,8 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
 
     ScreenHeader(
         "Send to TomTom",
-        if (state.platform.isAndroid) "In Google Maps, tap Share and pick MapsToTom. Or paste a link, coordinates or an address."
-        else "Copy a link in Google Maps (Share, then Copy link), or paste coordinates or an address.",
+        if (state.platform.isAndroid) "In Google Maps, tap Share and pick MapsToTom. Or paste a Google Maps or ViaMichelin link, coordinates or an address."
+        else "Copy a link in Google Maps (Share, then Copy link) or a ViaMichelin route's address, or paste coordinates or an address.",
     )
 
     // ---- input: the first thing to do on this screen
@@ -49,7 +50,7 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
         }
         if (!state.platform.isAndroid) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = Space.xs)) {
             Checkbox(state.watchClipboard, { state.watchClipboard = it })
-            Text("Add Google Maps links as soon as I copy them", style = MaterialTheme.typography.bodyMedium, color = t.text)
+            Text("Add Google Maps and ViaMichelin links as soon as I copy them", style = MaterialTheme.typography.bodyMedium, color = t.text)
         }
     }
 
@@ -73,7 +74,7 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
         Spacer(Modifier.width(Space.md))
         Text(if (state.points.isEmpty()) "empty" else "${state.points.size} point" + if (state.points.size == 1) "" else "s",
             style = MaterialTheme.typography.bodyMedium, color = t.textMuted, modifier = Modifier.weight(1f))
-        if (state.points.isNotEmpty()) DangerTextButton("Clear all", { state.points.clear(); state.warnings.clear() })
+        if (state.points.isNotEmpty()) DangerTextButton("Clear all", { state.clearPoints() })
     }
     Spacer(Modifier.height(Space.md))
     Panel(padding = PaddingValues(horizontal = Space.lg, vertical = Space.xs)) {
@@ -158,10 +159,16 @@ private fun SavePanel(state: AppState, wide: Boolean) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(state.followRoads, { state.followRoads = it })
-            Text("Follow Google's roads, using up to ", style = MaterialTheme.typography.bodyMedium, color = t.text)
+            Text("Follow the same roads, using up to ", style = MaterialTheme.typography.bodyMedium, color = t.text)
             OutlinedTextField(state.shapeTotal.toString(), { v -> v.toIntOrNull()?.let { state.shapeTotal = it.coerceIn(2, 255) } },
                 Modifier.width(76.dp), singleLine = true, enabled = state.followRoads, shape = Radius.control)
             Text(" points", style = MaterialTheme.typography.bodyMedium, color = t.text)
+        }
+        if (state.avoid.any) Row(Modifier.padding(start = Space.md, top = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+            Icon(statusIcon(Status.OK), null, tint = t.ok, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(Space.xs))
+            Text("Avoiding ${state.avoid.label()} (from the ViaMichelin link)", style = MaterialTheme.typography.bodySmall, color = t.text)
+            TextButton(onClick = { state.avoid = Avoid() }) { Text("Don't avoid") }
         }
         if (state.followRoads && state.shapeTotal > ITN_MAX) Row(Modifier.padding(start = Space.md, top = Space.xs)) {
             Icon(statusIcon(Status.WARN), null, tint = t.warn, modifier = Modifier.size(16.dp))

@@ -35,7 +35,25 @@ fun parseInput(text: String, net: Net?): ParseResult {
                     out.warnings += "Could not open short link $url: ${e.message}"; continue
                 }
             }
-            if (!isGoogleMapsUrl(url)) { out.warnings += "Not a Google Maps link: $url"; continue }
+            if (isViaMichelinUrl(url)) {
+                val v = parseViaMichelinUrl(url)
+                out.warnings += v.warnings
+                if (v.avoid.any) out.avoid = v.avoid
+                for (pt in v.points) {
+                    if (!pt.hasCoords) {
+                        val c = if (net == null) null else try {
+                            geocodeSmart(pt.name, net)
+                        } catch (e: Exception) {
+                            out.warnings += "Could not look up '${pt.name}': ${e.message}"; null
+                        }
+                        if (c == null) { out.warnings += "Skipped '${pt.name}': no coordinates in the link."; continue }
+                        pt.lat = c.first; pt.lon = c.second
+                    }
+                    out.points += pt
+                }
+                continue
+            }
+            if (!isGoogleMapsUrl(url)) { out.warnings += "Not a Google Maps or ViaMichelin link: $url"; continue }
             val g = parseGoogleUrl(url)
             out.warnings += g.warnings
             val single = g.points.size == 1

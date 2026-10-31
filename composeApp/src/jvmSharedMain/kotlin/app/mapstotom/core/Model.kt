@@ -17,6 +17,8 @@ data class Point(
 data class ParseResult(
     val points: MutableList<Point> = mutableListOf(),
     val warnings: MutableList<String> = mutableListOf(),
+    /** Roads the link's route avoids (ViaMichelin route options), if it says. */
+    var avoid: Avoid? = null,
 )
 
 internal fun pretty(lat: Double, lon: Double) = "%.5f, %.5f".format(java.util.Locale.ROOT, lat, lon)
