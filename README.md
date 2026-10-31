@@ -114,12 +114,12 @@ finish are stops; the rest are pass-through points the TomTom follows without an
   of each district). The UK and Germany need a personal sign-up/key, so they aren't included. On the TomTom
   (NavCore 9): find fuel by price, cheapest nearby or on the route. The TomTom holds one fuel
   type at a time; pick it before installing (it starts on the type already there). The set is
-  `Fuel prices.ov2` + `Fuel prices.fpf` in the map folder; the TomTom uses only the first fuel
+  `FuelPrices.ov2` + `FuelPrices.fpf` in the map folder; the TomTom uses only the first fuel
   set it finds, so other fuel sets there are renamed to `*.mapstotom-old`. Restart the TomTom
   afterwards. Portugal takes several minutes and downloads only the chosen fuel type, because its
   server is slow.
 - **From OpenStreetMap:** fuel stations, LPG stations, EV chargers, motorhome areas, campsites,
-  supermarkets, pharmacies and speed cameras, for the countries of your map. Each type becomes
+  supermarkets, pharmacies, beaches, public toilets, drinking water, viewpoints, picnic sites and speed cameras, for the countries of your map. Each type becomes
   its own category with an icon; speed cameras also get a warning beep. Downloads use the
   public Overpass servers, which are often busy: MapsToTom tries several. Speed cameras can't
   be installed for France, where warning of camera positions is illegal.

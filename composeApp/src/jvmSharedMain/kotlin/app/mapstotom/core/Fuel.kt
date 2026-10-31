@@ -476,7 +476,20 @@ fun fetchFuel(source: FuelSource, net: Net, type: FuelType, progress: (Int, Int)
     FuelSource.HRV -> fetchCroatia(net)
     FuelSource.SVN -> fetchSlovenia(net, progress)
     FuelSource.AUT -> fetchAustria(net, progress)
-}.filter(source::inArea)
+}.filter(source::inArea).let(::dropPriceTypos)
+
+/**
+ * Feeds have typos (seen: LPG at 4.94 EUR, red diesel at 4.52 EUR). A price under half or over twice
+ * the median for that fuel is treated as "not sold" at that station.
+ */
+internal fun dropPriceTypos(stations: List<FuelStation>): List<FuelStation> {
+    val medians = stations.flatMap { it.prices.entries }.groupBy({ it.key }, { it.value })
+        .mapValues { (_, v) -> v.sorted()[v.size / 2] }
+    return stations.map { st ->
+        val ok = st.prices.filter { (code, cents) -> val m = medians.getValue(code); cents * 2 >= m && cents <= m * 2 }
+        if (ok.size == st.prices.size) st else FuelStation(st.id, st.lat, st.lon, st.name, ok, st.sortKey)
+    }
+}
 
 // ------------------------------------------------------------------ file formats
 
@@ -592,7 +605,8 @@ fun findFuelSets(fs: DeviceFs, mapDir: String): List<FuelSet> {
     }
 }
 
-const val FUEL_SET_NAME = "Fuel prices"
+/** No space: every fuel set name checked on a real device had none (FuelIberia). */
+const val FUEL_SET_NAME = "FuelPrices"
 
 /**
  * Install (or replace) the fuel set in the map folder. Other fuel sets there are renamed to *.mapstotom-old,

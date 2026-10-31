@@ -12,6 +12,11 @@ enum class OsmPoiType(val label: String, val category: String, val filter: Strin
     CAMPSITE("Campsites", "OSM Campsites", "nwr[tourism=camp_site]", 0x2E6B2E, 'C'),
     SUPERMARKET("Supermarkets", "OSM Supermarkets", "nwr[shop=supermarket]", 0x7A3FB0, 'S'),
     PHARMACY("Pharmacies", "OSM Pharmacies", "nwr[amenity=pharmacy]", 0x0A9A6A, '+'),
+    BEACH("Beaches", "OSM Beaches", "nwr[natural=beach]", 0xD9A400, 'B'),
+    TOILETS("Public toilets", "OSM Toilets", "nwr[amenity=toilets][access!=private][access!=customers]", 0x3366CC, 'T'),
+    DRINKING_WATER("Drinking water", "OSM Drinking water", "node[amenity=drinking_water][access!=private]", 0x1E90FF, 'W'),
+    VIEWPOINT("Viewpoints", "OSM Viewpoints", "node[tourism=viewpoint]", 0x8B5A2B, 'V'),
+    PICNIC("Picnic sites", "OSM Picnic sites", "nwr[tourism=picnic_site]", 0x4F8A2B, 'P'),
     SPEED_CAMERA("Speed cameras", "OSM Speed cameras", "node[highway=speed_camera]", 0xD21F1F, '!', warns = true);
 
     /** Countries where this category may not be used (France bans warnings of camera positions). */
@@ -85,11 +90,18 @@ internal fun osmName(tags: Map<*, *>, type: OsmPoiType): String {
         val speed = t("maxspeed")?.filter { it.isDigit() }?.takeIf { it.isNotEmpty() }
         return listOfNotNull("Speed camera", speed?.let { "$it km/h" }).joinToString(" ")
     }
+    if (type == OsmPoiType.TOILETS) {
+        val fee = when (t("fee")?.lowercase()) { "no" -> "free"; "yes" -> "paid"; else -> null }
+        val access = if (t("wheelchair") == "yes") "wheelchair" else null
+        val extra = listOfNotNull(fee, access).joinToString(", ").takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""
+        val where = t("name") ?: t("addr:city") ?: t("addr:place")
+        return "Toilets" + extra + (where?.let { ", $it" } ?: "")
+    }
     val base = when (type) {
         OsmPoiType.FUEL, OsmPoiType.LPG, OsmPoiType.SUPERMARKET -> t("brand") ?: t("name")
         OsmPoiType.EV -> listOfNotNull(t("operator") ?: t("brand") ?: t("name"), t("capacity")?.let { "x$it" }).joinToString(" ").ifEmpty { null }
         else -> t("name") ?: t("brand")
-    } ?: type.label.removeSuffix("s")
+    } ?: when (type) { OsmPoiType.BEACH -> "Beach"; OsmPoiType.DRINKING_WATER -> "Drinking water"; else -> type.label.removeSuffix("s") }
     val town = t("addr:city") ?: t("addr:place")
     return if (town != null && !base.contains(town, ignoreCase = true)) "$base, $town" else base
 }

@@ -251,4 +251,12 @@ class FuelTest {
         assertFalse(cat.editable)
         dir.deleteRecursively()
     }
+
+    @Test fun priceTyposDropped() {
+        val st = (1..9).map { FuelStation("$it", 39.0, -8.0, "S$it", mapOf(8 to 99, 1 to 160)) } +
+            FuelStation("x", 39.0, -8.0, "Typo", mapOf(8 to 494, 1 to 161))
+        val out = dropPriceTypos(st)
+        assertEquals(mapOf(1 to 161), out.last().prices)
+        assertEquals(mapOf(8 to 99, 1 to 160), out.first().prices)
+    }
 }

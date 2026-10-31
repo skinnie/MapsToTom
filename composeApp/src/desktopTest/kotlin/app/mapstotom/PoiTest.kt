@@ -77,6 +77,13 @@ class OsmTest {
         assertEquals("Motorhome area", osmName(emptyMap<String, String>(), OsmPoiType.MOTORHOME))
         assertEquals("Repsol, Braga", osmName(mapOf("brand" to "Repsol", "addr:city" to "Braga"), OsmPoiType.LPG))
         assertTrue("fuel:lpg" in overpassQuery(OsmPoiType.LPG, listOf("PT")))
+        assertEquals("Praia da Nazaré", osmName(mapOf("name" to "Praia da Nazaré"), OsmPoiType.BEACH))
+        assertEquals("Beach", osmName(emptyMap<String, String>(), OsmPoiType.BEACH))
+        assertEquals("Toilets (free, wheelchair), Leiria", osmName(mapOf("fee" to "no", "wheelchair" to "yes", "addr:city" to "Leiria"), OsmPoiType.TOILETS))
+        assertEquals("Toilets", osmName(emptyMap<String, String>(), OsmPoiType.TOILETS))
+        assertEquals("Viewpoint", osmName(emptyMap<String, String>(), OsmPoiType.VIEWPOINT))
+        assertTrue("access!=private" in overpassQuery(OsmPoiType.TOILETS, listOf("PT")))
+        for (t in OsmPoiType.entries) assertTrue(categoryIconBmp(t.rgb, t.glyph).size > 1000, "icon for $t")
     }
 
     @Test fun parsesNodesAndCentres() {

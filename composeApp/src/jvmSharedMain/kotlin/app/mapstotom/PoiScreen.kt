@@ -121,7 +121,7 @@ private fun FuelSection(state: AppState) {
     PrimaryButton(if (set == null) "Install fuel prices" else "Update fuel prices", { state.installFuel() },
         enabled = idle, icon = Icons.Filled.Download)
     Spacer(Modifier.height(Space.xs))
-    Text("The TomTom holds one fuel type at a time. Restart it afterwards (hold the power button). " +
+    Text("The TomTom holds one fuel type at a time: pick it here, not on the TomTom (changing it there empties the prices until the next install). Restart it afterwards (hold the power button). " +
         (if (i.sources.any { it == FuelSource.PRT || it == FuelSource.AUT }) "Portugal and Austria take a few minutes: their servers answer one area at a time." else ""),
         style = MaterialTheme.typography.bodySmall, color = t.textMuted)
 }
