@@ -1,0 +1,159 @@
+{
+ "note": "replies of server/mockserver.py with the inputs in inputs/; Hercules POSTs are one login session in order",
+ "pairs": [
+  {
+   "file": "01_proxy_directory",
+   "method": "GET",
+   "path": "/proxy/directory.php",
+   "req_body": 0,
+   "resp": 1171
+  },
+  {
+   "file": "02_apn",
+   "method": "GET",
+   "path": "/apn",
+   "req_body": 0,
+   "resp": 5
+  },
+  {
+   "file": "03_apn_test",
+   "method": "GET",
+   "path": "/apn_test",
+   "req_body": 0,
+   "resp": 52
+  },
+  {
+   "file": "04_logon",
+   "method": "GET",
+   "path": "/logon",
+   "req_body": 0,
+   "resp": 70
+  },
+  {
+   "file": "05_svcact",
+   "method": "GET",
+   "path": "/svcact",
+   "req_body": 0,
+   "resp": 73
+  },
+  {
+   "file": "06_account2_psa_ai3",
+   "method": "GET",
+   "path": "/account2",
+   "req_body": 0,
+   "resp": 1248
+  },
+  {
+   "file": "07_weather_w2_gwl",
+   "method": "GET",
+   "path": "/weather",
+   "req_body": 0,
+   "resp": 307
+  },
+  {
+   "file": "08_services_directory",
+   "method": "GET",
+   "path": "/services/directory.php",
+   "req_body": 0,
+   "resp": 29
+  },
+  {
+   "file": "09_portland_sv_son",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 16
+  },
+  {
+   "file": "10_portland_nt_gtuo_first",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 2453
+  },
+  {
+   "file": "11_portland_pr_gpid",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 16
+  },
+  {
+   "file": "12_portland_nt_gtuo",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 2453
+  },
+  {
+   "file": "13_portland_nt_gtd2",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 25
+  },
+  {
+   "file": "14_fuelprices_fp_gfl2",
+   "method": "GET",
+   "path": "/fuelprices",
+   "req_body": 0,
+   "resp": 16
+  },
+  {
+   "file": "15_h204_kind3",
+   "method": "POST",
+   "path": "/h204",
+   "req_body": 63,
+   "resp": 18
+  },
+  {
+   "file": "16_h204_kind6_batch",
+   "method": "POST",
+   "path": "/h204",
+   "req_body": 72,
+   "resp": 14
+  },
+  {
+   "file": "17_h204_kind16",
+   "method": "POST",
+   "path": "/h204",
+   "req_body": 39,
+   "resp": 10
+  },
+  {
+   "file": "18_h204_kind14",
+   "method": "POST",
+   "path": "/h204",
+   "req_body": 39,
+   "resp": 12
+  },
+  {
+   "file": "19_fuelprices_diesel_ok",
+   "method": "GET",
+   "path": "/fuelprices",
+   "req_body": 0,
+   "resp": 174
+  },
+  {
+   "file": "20_fuelprices_lrp_ok",
+   "method": "GET",
+   "path": "/fuelprices",
+   "req_body": 0,
+   "resp": 98
+  },
+  {
+   "file": "21_fuelprices_unknown_set_600",
+   "method": "GET",
+   "path": "/fuelprices",
+   "req_body": 0,
+   "resp": 16
+  },
+  {
+   "file": "22_portland_nt_gtd2_found",
+   "method": "GET",
+   "path": "/portland",
+   "req_body": 0,
+   "resp": 80
+  }
+ ]
+}
