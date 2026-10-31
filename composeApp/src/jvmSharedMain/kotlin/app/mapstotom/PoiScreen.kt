@@ -43,6 +43,8 @@ fun ColumnScope.PoiScreen(state: AppState, wide: Boolean) {
 
 @Composable
 private fun AddPois(state: AppState) {
+    FuelSection(state)
+    Spacer(Modifier.height(Space.xxl))
     OsmSection(state)
     Spacer(Modifier.height(Space.xxl))
     GoogleSection(state)
@@ -56,6 +58,72 @@ private fun AddPois(state: AppState) {
 private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.headlineSmall, color = LocalTokens.current.text)
     Spacer(Modifier.height(Space.sm))
+}
+
+// ------------------------------------------------------------------ fuel prices
+
+private val COUNTRY_NAMES = FuelSource.entries.associate { it.iso3 to it.country } + mapOf(
+    "AND" to "Andorra", "GIB" to "Gibraltar", "MCO" to "Monaco", "SMR" to "San Marino", "VAT" to "Vatican City", "LIE" to "Liechtenstein",
+    "DEU" to "Germany", "CHE" to "Switzerland", "GBR" to "United Kingdom", "IRL" to "Ireland", "BEL" to "Belgium", "NLD" to "Netherlands",
+    "LUX" to "Luxembourg", "DNK" to "Denmark", "SWE" to "Sweden", "NOR" to "Norway", "FIN" to "Finland", "POL" to "Poland",
+    "CZE" to "Czechia", "SVK" to "Slovakia", "HUN" to "Hungary", "GRC" to "Greece", "USA" to "USA", "CAN" to "Canada")
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun FuelSection(state: AppState) {
+    val t = LocalTokens.current
+    val idle = state.busy == null
+    val d = state.device
+    SectionTitle("Fuel prices")
+    Prose("Every fuel station with today's price, from official open data. On the TomTom: find fuel by price, " +
+        "or the cheapest nearby or on your route.")
+    Spacer(Modifier.height(Space.md))
+    if (d == null) { NeedDevice(state); return }
+    val info by produceState<FuelInfo?>(null, d, state.gen) {
+        value = withContext(Dispatchers.IO) { runCatching { state.loadFuelInfo() }.getOrNull() }
+    }
+    val i = info ?: return
+    val set = i.sets.firstOrNull()
+    Panel(padding = PaddingValues(horizontal = Space.lg, vertical = Space.xs)) {
+        if (set != null) {
+            StatusRow(Status.OK, "On the TomTom: ${"%,d".format(set.stations)} stations" + (set.type?.let { ", ${it.label}" } ?: ""),
+                "Prices from ${AppState.fmt(set.updated)}." + if (i.sets.size > 1) " ${i.sets.size} fuel sets: the TomTom uses only one, so installing tidies up." else "")
+        } else {
+            StatusRow(Status.NONE, "No fuel prices on the TomTom yet")
+        }
+        Hairline()
+        val missing = i.countries.filter { FuelSource.of(it) == null }.map { COUNTRY_NAMES[it] ?: it }
+        if (i.sources.isEmpty()) {
+            StatusRow(Status.WARN, "No open price data for this map",
+                "Prices are available for ${FuelSource.entries.joinToString { it.country }}. " +
+                    "This map covers ${i.countries.joinToString { COUNTRY_NAMES[it] ?: it }.ifEmpty { "unknown countries" }}.")
+        } else {
+            StatusRow(Status.OK, "Prices for " + i.sources.joinToString(", ") { it.country },
+                "From " + i.sources.joinToString(", ") { "${it.publisher} (${it.country})" } + "." +
+                    (if (missing.isNotEmpty()) " None for ${missing.joinToString(", ")}." else "") +
+                    i.sources.mapNotNull { it.note }.joinToString("") { " $it." })
+        }
+    }
+    if (i.sources.isEmpty()) return
+    Spacer(Modifier.height(Space.md))
+    Text("Fuel", style = MaterialTheme.typography.labelLarge, color = t.textMuted)
+    Spacer(Modifier.height(Space.xs))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+        FuelType.entries.forEach { f ->
+            FilterChip(
+                selected = state.fuelType == f, onClick = { state.changeFuelType(f) }, enabled = idle,
+                label = { Text(f.label) }, shape = Radius.pill,
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = t.actionSoft, selectedLabelColor = t.onActionSoft, labelColor = t.textMuted),
+            )
+        }
+    }
+    Spacer(Modifier.height(Space.md))
+    PrimaryButton(if (set == null) "Install fuel prices" else "Update fuel prices", { state.installFuel() },
+        enabled = idle, icon = Icons.Filled.Download)
+    Spacer(Modifier.height(Space.xs))
+    Text("The TomTom holds one fuel type at a time. Restart it afterwards (hold the power button). " +
+        (if (i.sources.any { it == FuelSource.PRT || it == FuelSource.AUT }) "Portugal and Austria take a few minutes: their servers answer one area at a time." else ""),
+        style = MaterialTheme.typography.bodySmall, color = t.textMuted)
 }
 
 // ------------------------------------------------------------------ OpenStreetMap
@@ -259,7 +327,11 @@ private fun OnDevice(state: AppState, onDelete: (PoiCategory) -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(c.name, style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val bits = listOfNotNull(
-                        if (c.isProtected) "protected (TomTom service)" else "${c.count} places" + if (c.editable) "" else ", read-only",
+                        when {
+                            c.fpf != null -> "fuel prices, ${c.count} stations"
+                            c.isProtected -> "protected (TomTom service)"
+                            else -> "${c.count} places" + if (c.editable) "" else ", read-only"
+                        },
                         year?.toString(),
                         also?.let { "map has \"$it\"" },
                     )

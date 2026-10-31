@@ -108,6 +108,16 @@ finish are stops; the rest are pass-through points the TomTom follows without an
 
 ## POIs
 
+- **Fuel prices:** every fuel station in your map's countries with today's price, from official
+  open data: Portugal (DGEG), Spain (MITECO), France (prix-carburants), Italy (MIMIT), Croatia
+  (MINGO), Slovenia (goriva.si) and Austria (E-Control, which publishes only the cheapest stations
+  of each district). The UK and Germany need a personal sign-up/key, so they aren't included. On the TomTom
+  (NavCore 9): find fuel by price, cheapest nearby or on the route. The TomTom holds one fuel
+  type at a time; pick it before installing (it starts on the type already there). The set is
+  `Fuel prices.ov2` + `Fuel prices.fpf` in the map folder; the TomTom uses only the first fuel
+  set it finds, so other fuel sets there are renamed to `*.mapstotom-old`. Restart the TomTom
+  afterwards. Portugal takes several minutes and downloads only the chosen fuel type, because its
+  server is slow.
 - **From OpenStreetMap:** fuel stations, LPG stations, EV chargers, motorhome areas, campsites,
   supermarkets, pharmacies and speed cameras, for the countries of your map. Each type becomes
   its own category with an icon; speed cameras also get a warning beep. Downloads use the
@@ -148,6 +158,9 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
 - **OSRM demo server:** only for "Follow the same roads".
 - **Overpass API (OpenStreetMap):** POI downloads. Reverse lookups on Nominatim name points
   that are only coordinates.
+- **Fuel prices:** DGEG (`precoscombustiveis.dgeg.gov.pt`, one request per district),
+  MITECO (`sedeaplicaciones.minetur.gob.es`), `donnees.roulez-eco.fr`, `mimit.gov.it`,
+  `mzoe-gor.hr`, `goriva.si` and `api.e-control.at`.
 - **TomTom** (`home.tomtom.com`): QuickGPSFix. Its certificate chains to the old
   "DigiCert High Assurance EV Root CA", which current systems no longer trust; MapsToTom trusts
   that one root for tomtom.com only (SHA-256 `74:31:E5:F4:…:B1:18:CF`).
@@ -158,6 +171,11 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
   Flag 4 = departure, 2 = stop or destination, 0 = pass-through.
 - **`.ov2`**: type-2 records: type byte, record length, longitude and latitude ×100000
   (little-endian), zero-terminated name.
+- **Fuel set `.ov2`**: a 21-byte `d` header (byte 0x0d = 0x08 marks fuel prices, a set id at
+  0x09, a checksum at 0x10), then per station a type-0x1d record: payload length, lon, lat, flags
+  0x06, a 24-bit id `0x800000 | index`, and the name as 2-byte units (Latin-1 is the byte plus `!`).
+- **`.fpf`** (FPF0): fuel type at 0x08, update time, the area, then one u16 price in cents per
+  station index (0 = not sold).
 - **`.gpi`** (read only): a tree of records `u16 type, u16 flags, u32 size` (+ `u32` own-data
   size when flags & 8). Group 9 → areas 8 → places 2 (lat/lon in semicircles, name, category
   ref 6); categories 7 and bitmaps 5 hang off the group. Text is a list of language-tagged
@@ -194,4 +212,7 @@ is shared by desktop and Android; only file pickers and USB access differ.
 - [TTconv](https://github.com/treysis/TTconv) by treysis: GPL-3.0. Included unchanged, except the
   two start scripts described in `composeApp/src/commonMain/composeResources/files/ttconv/NOTICE.txt`.
 - Map data lookups: © OpenStreetMap contributors (Nominatim, OSRM).
+- Fuel prices: open data of DGEG (Portugal), MITECO (Spain), the French Ministry of the Economy
+  (prix-carburants), MIMIT (Italy, IODL 2.0), the Croatian Ministry of Economy, goriva.si (Slovenia)
+  and E-Control (Austria).
 - MapsToTom does not activate or unlock maps.

@@ -24,8 +24,13 @@ class DeviceInfo(val fs: DeviceFs, val bif: Map<String, String>, val mapFolder: 
     val navcore get() = bif["ApplicationVersionVersionNumber"]?.let { v -> if (v.length == 4) "${v[0]}.${v.substring(1)}" else v }
 }
 
+/** [fpf] is set for a fuel price set: its price file, deleted together with the .ov2. */
 class PoiCategory(val name: String, val ov2: String, val bmp: String?, val ogg: String?, val count: Int,
-                  val modified: Long? = null, val isProtected: Boolean = false, val editable: Boolean = !isProtected)
+                  val modified: Long? = null, val isProtected: Boolean = false, val editable: Boolean = !isProtected,
+                  val fpf: String? = null)
+
+/** Fuel prices for the connected TomTom: its map's countries, those with a price source, and the set already there. */
+class FuelInfo(val countries: List<String>, val sources: List<FuelSource>, val sets: List<FuelSet>)
 
 /** All app state and actions, shared by desktop and Android. Work runs off the UI thread. */
 class AppState(val platform: Platform, private val scope: CoroutineScope, private val net: Net = RealNet()) {
@@ -81,6 +86,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         val bif = readBif(fs)
         val d = DeviceInfo(fs, bif, findMapFolder(fs), detectChip(fs, bif))
         device = d
+        fuelTypeChecked = false
         if (osmCountries.isBlank()) osmCountries = countriesForMap(d.mapFolder).joinToString(", ")
         gen++
         say("Connected: ${d.model}.")
@@ -385,6 +391,51 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say("Installed from OpenStreetMap: ${done.joinToString(", ")}. On the TomTom: Navigate to → Point of Interest.")
     }
 
+    // ---------------------------------------------------------- fuel prices
+    /** The fuel whose prices go on the TomTom (its .fpf holds one type). */
+    var fuelType by mutableStateOf(platform.loadSetting("fuelType")?.toIntOrNull()?.let(FuelType::of) ?: FuelType.DIESEL)
+        private set
+    private var fuelTypeChecked = false
+    /** The last download per country and time, reused for an hour so changing the fuel type doesn't fetch everything again. */
+    private val fuelCache = HashMap<String, Pair<Instant, List<FuelStation>>>()
+
+    fun changeFuelType(t: FuelType) { fuelType = t; platform.saveSetting("fuelType", t.code.toString()) }
+
+    /** Read off the UI thread. The first time per connection, the fuel type follows the set already on the TomTom. */
+    fun loadFuelInfo(): FuelInfo? {
+        val d = device ?: return null
+        val map = d.mapFolder ?: return null
+        val countries = mapCountries(d.fs, map)
+        val sets = findFuelSets(d.fs, map)
+        if (!fuelTypeChecked) { fuelTypeChecked = true; sets.firstOrNull()?.type?.let { fuelType = it } }
+        return FuelInfo(countries, countries.mapNotNull(FuelSource::of), sets)
+    }
+
+    fun installFuel() = work("Downloading fuel prices…") {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val sources = mapCountries(d.fs, map).mapNotNull(FuelSource::of)
+        require(sources.isNotEmpty()) { "There is no open price data for this map's countries yet" }
+        val type = fuelType
+        val fresh = Instant.now().minusSeconds(3600)
+        var time = Instant.now()
+        val stations = sources.flatMap { s ->
+            val key = s.iso3 + if (s.byType) "/${type.code}" else ""
+            fuelCache[key]?.takeIf { it.first.isAfter(fresh) }?.let { (t, list) -> time = minOf(time, t); return@flatMap list }
+            busyDetail("${s.country}: downloading prices…")
+            fetchFuel(s, net, type) { i, n ->
+                progress = i to n
+                if (i < n) busyDetail("${s.country}: ${i * 100 / n}%…")
+            }.also { fuelCache[key] = Instant.now() to it }
+        }
+        progress = null
+        busyDetail("Writing to the TomTom…")
+        installFuelPrices(d.fs, map, stations, type, time)
+        gen++
+        val sold = stations.count { (it.prices[type.code] ?: 0) > 0 }
+        say("Fuel prices installed: ${"%,d".format(stations.size)} stations, $sold with ${type.label}. " +
+            "Restart the TomTom (hold the power button until it restarts) so it finds them.")
+    }
+
     // ---------------------------------------------------------- Google saved places
     val takeoutLists = mutableStateListOf<SavedList>()
 
@@ -459,7 +510,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     fun deletePoiCategory(c: PoiCategory) = work("Deleting…") {
         val fs = requireDevice().fs
-        fs.delete(c.ov2); c.bmp?.let { fs.delete(it) }; c.ogg?.let { fs.delete(it) }
+        fs.delete(c.ov2); c.bmp?.let { fs.delete(it) }; c.ogg?.let { fs.delete(it) }; c.fpf?.let { fs.delete(it) }
         gen++
         say("Deleted POI category \"${c.name}\".")
     }
@@ -484,8 +535,13 @@ fun scanPoiFolder(fs: DeviceFs, dir: String = ""): List<PoiCategory> {
     return names.filter { it.lowercase().endsWith(".ov2") }.map { f ->
         val base = f.dropLast(4)
         val signed = names.any { it.equals("$f.dct", ignoreCase = true) }
-        val c = runCatching { readOv2Contents(fs.read(join(dir, f)) ?: ByteArray(0)) }.getOrNull()
-        val entries = c?.let { if (signed) null else parseOv2(fs.read(join(dir, f)) ?: ByteArray(0)) }
+        val data = fs.read(join(dir, f)) ?: ByteArray(0)
+        if (isFuelOv2(data)) {
+            return@map PoiCategory(base, join(dir, f), find(base, "bmp"), find(base, "ogg"), fuelOv2Count(data),
+                fs.modified(join(dir, f)), editable = false, fpf = find(base, "fpf"))
+        }
+        val c = runCatching { readOv2Contents(data) }.getOrNull()
+        val entries = c?.let { if (signed) null else parseOv2(data) }
         PoiCategory(base, join(dir, f), find(base, "bmp"), find(base, "ogg"), entries?.size ?: 0,
             fs.modified(join(dir, f)), isProtected = signed, editable = entries != null && c.complete && !signed)
     }.sortedBy { it.name.lowercase() }
