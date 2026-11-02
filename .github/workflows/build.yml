@@ -20,7 +20,9 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :composeApp:desktopTest -Pm2t.online=1
+      # Offline tests only: the live ones download from TomTom and the fuel-price servers,
+      # which can be slow or drop GitHub's runners. Run those locally with -Pm2t.online=1.
+      - run: ./gradlew :composeApp:desktopTest
 
   desktop:
     needs: test
