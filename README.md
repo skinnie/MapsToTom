@@ -171,6 +171,21 @@ the phone. Not yet tried with an Android phone.
 
 ## Device tools
 
+- **Add-ons:** a switch for each add-on, with an ⓘ that shows what it costs in memory and processor,
+  so you keep only what you use. The figures were measured on a ONE v4 (29.5 MB memory):
+
+  | add-on | cost on a ONE v4 | switch |
+  |---|---|---|
+  | Live services | about 1.0–1.5 MB memory, no measurable processor cost | `model:x40` in `Config/setconfig.txt` (off puts back the model from before); needs the car-link files |
+  | Bluetooth | about 0.5–0.8 MB memory; felt noticeably smoother off | `bton` / `btoff` in `Config/setconfig.txt` |
+  | Fuel prices | not measured yet | renames the set's files to `*.mapstotom-off`, which the TomTom ignores |
+  | GPS engine log | not measured; writes to the card all the time | `gl/debug-gltt` (also on the GPS tab) |
+
+  Live and Bluetooth need the community-modified system that reads `Config/setconfig.txt`; on other
+  TomToms those two switches don't show. That system reads the file only at a full start, not when
+  the TomTom wakes from standby, so the tab shows what it used at its last start
+  (`text/config.txt`) and whether a change is still waiting. It also sets the 8 MB swap file back
+  at every start and fills it on purpose, so a full swap is normal.
 - **Power button:** choose between standby (default) and switching fully off (`suicide.dat`).
 - **Car power:** stop the 10-second "switching off" countdown that weak USB ports (like a car
   radio's) trigger when power dips (`noautosuspend.dat`). The TomTom then no longer switches off

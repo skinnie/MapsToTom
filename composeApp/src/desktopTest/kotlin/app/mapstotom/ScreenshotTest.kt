@@ -53,6 +53,22 @@ class ScreenshotTest {
         scene.close()
     }
 
+    /** The whole Device tab (add-ons, power, backup) at desktop and phone width; needs -Pm2t.device. */
+    @Test fun renderDeviceTall() {
+        val dir = out ?: return
+        val dev = deviceDir?.takeIf { it.isDirectory } ?: return
+        dir.mkdirs()
+        for ((name, wh) in mapOf("desktop" to (1100 to 1700), "phone" to (412 to 2300))) {
+            val state = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined))
+            state.connect(LocalFs(dev))
+            val scene = ImageComposeScene(wh.first, wh.second, Density(1f)) { App(state, dark = false, startTab = Tab.DEVICE) }
+            var t = 0L
+            repeat(12) { scene.render(t); t += 100_000_000; Thread.sleep(60) }
+            File(dir, "$name-device-tall.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            scene.close()
+        }
+    }
+
     @Test fun renderAllScreens() {
         val dir = out ?: return
         dir.mkdirs()

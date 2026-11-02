@@ -299,6 +299,28 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say(if (on) "The TomTom will stay on when car power dips. Switch it off with the power button." else "The TomTom will switch off again when external power is lost.")
     }
 
+    // ---------------------------------------------------------- add-ons
+    fun setLive(on: Boolean) = work(if (on) "Turning Live services on…" else "Turning Live services off…") {
+        app.mapstotom.core.setLive(requireDevice().fs, on); gen++
+        say((if (on) "Live services on, with Bluetooth." else "Live services off.") + " The TomTom uses it from its next full start.")
+    }
+
+    fun setBluetooth(on: Boolean) = work(if (on) "Turning Bluetooth on…" else "Turning Bluetooth off…") {
+        app.mapstotom.core.setBluetooth(requireDevice().fs, on); gen++
+        say("Bluetooth ${if (on) "on" else "off"} from the TomTom's next full start.")
+    }
+
+    fun setFuelPrices(on: Boolean) = work(if (on) "Turning fuel prices on…" else "Turning fuel prices off…") {
+        val d = requireDevice()
+        val dir = d.mapFolder ?: error("No map folder on the TomTom")
+        val n = app.mapstotom.core.setFuelPrices(d.fs, dir, on); gen++
+        say(when {
+            n == 0 && on -> "No fuel set turned on: a set with the same name is already there."
+            on -> "Fuel prices back on from the TomTom's next start."
+            else -> "Fuel prices off from the TomTom's next start. The files stay on the card."
+        }, error = n == 0 && on)
+    }
+
     var progress by mutableStateOf<Pair<Int, Int>?>(null); private set
 
     fun backup() = scope.launch {
