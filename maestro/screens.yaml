@@ -1,0 +1,37 @@
+# Tour of every tab on Android with a screenshot at each step (no TomTom needed).
+# Run: JAVA_HOME=<jdk17> MAESTRO_CLI_NO_ANALYTICS=1 maestro test maestro/screens.yaml
+# On a tablet where adb runs as root, check for leaked /proc/cpuinfo mounts afterwards.
+appId: app.mapstotom
+---
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd
+- takeScreenshot: 01-send
+- scroll
+- takeScreenshot: 02-send-lower
+- tapOn: "GPS"
+- waitForAnimationToEnd
+- takeScreenshot: 03-gps
+- scroll
+- takeScreenshot: 04-gps-lower
+- tapOn: "POIs"
+- waitForAnimationToEnd
+- takeScreenshot: 05-pois
+- scrollUntilVisible:
+    element: "From OpenStreetMap"
+    direction: DOWN
+- takeScreenshot: 06-pois-osm
+- scroll
+- takeScreenshot: 07-pois-osm-lower
+- scroll
+- takeScreenshot: 08-pois-lower
+- tapOn: "Device"
+- waitForAnimationToEnd
+- takeScreenshot: 09-device
+- scroll
+- takeScreenshot: 10-device-lower
+- tapOn: "Car"
+- waitForAnimationToEnd
+- takeScreenshot: 11-car
+- scroll
+- takeScreenshot: 12-car-lower

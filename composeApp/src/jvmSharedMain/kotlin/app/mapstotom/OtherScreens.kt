@@ -96,7 +96,9 @@ fun ColumnScope.DeviceScreen(state: AppState) {
 private const val LIVE_COST = "Measured on a ONE v4: about 1.0–1.5 MB more memory for the navigation program, about 5% of the " +
     "29.5 MB it has. No processor cost measured: the navigation program used 70–83% of the processor while driving, with or " +
     "without Live. Needs Bluetooth, so switching Live on turns Bluetooth on too. The TomTom then acts as a GO x40 " +
-    "(model:x40 in Config/setconfig.txt); switching Live off puts back the model it had before. A TomTom with 64 MB, like the GO 950, has more room for it."
+    "(model:x40 in Config/setconfig.txt); switching Live off puts back the model it had before. A TomTom with 64 MB, like the GO 950, has more room for it. " +
+    "The TomTom goes online through a phone: this app's car link on a phone with Android 8 or newer (no root), or the " +
+    "TT Link app on an old rooted Android 4.0–4.1 phone (ttlink/README.md in this app's source)."
 private const val BLUETOOTH_COST = "Measured on a ONE v4: about 0.5–0.8 MB more memory with Bluetooth on (the radio and its " +
     "link program). Bluetooth's four background programs, about 1–1.4 MB, run either way on a TomTom that has Bluetooth. " +
     "No processor difference measured, but in use the TomTom felt noticeably smoother with it off. With Live on, the " +

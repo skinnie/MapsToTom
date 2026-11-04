@@ -409,21 +409,47 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     // ---------------------------------------------------------- OpenStreetMap POIs
     var osmCountries by mutableStateOf("")
 
+    /** The TomTom developer key (shared with the car link's traffic), or null. */
+    val tomtomKey: String? get() = platform.loadSetting(app.mapstotom.link.CarLinkSettings.TRAFFIC_KEY)?.trim()?.takeIf { it.isNotEmpty() }
+    fun saveTomtomKey(key: String) { platform.saveSetting(app.mapstotom.link.CarLinkSettings.TRAFFIC_KEY, key.trim().ifEmpty { null }) }
+
+    /** Leave out OSM places the TomTom's own map already has (needs [tomtomKey]). */
+    var osmSkipKnown by mutableStateOf(platform.loadSetting("osm.skipKnown") != "0")
+        private set
+    fun changeOsmSkipKnown(on: Boolean) { osmSkipKnown = on; platform.saveSetting("osm.skipKnown", if (on) "1" else "0") }
+    /** What the last install left out, so the user can check it. */
+    var osmSkipped by mutableStateOf<List<MapOverlap.Skipped>>(emptyList())
+        private set
+
+    private val overlapBudget = RequestBudget(platform::loadSetting, platform::saveSetting)
+    fun overlapRequestsLeft() = overlapBudget.left()
+
     fun installOsm(types: List<OsmPoiType>) = work("Downloading from OpenStreetMap…") {
         val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
         val cc = osmCountries.split(',', ' ', ';').filter { it.isNotBlank() }
-        val done = mutableListOf<String>()
+        val key = tomtomKey
+        val overlap = if (osmSkipKnown && key != null)
+            MapOverlap(key, net, OverlapCache(platform.dataDir?.let { java.io.File(it, "tomtom-poi-check.txt") }), overlapBudget) else null
+        val done = mutableListOf<String>(); val skipped = mutableListOf<MapOverlap.Skipped>(); var unchecked = 0
         types.forEachIndexed { i, t ->
             progress = i to types.size
             busyDetail("${t.label} (${i + 1} of ${types.size})…")
-            val pts = fetchOsmPois(t, cc, net)
+            val all = fetchOsmPois(t, cc, net)
+            val r = if (overlap != null && t.tomtom != null) {
+                busyDetail("${t.label}: comparing with the TomTom's map…")
+                overlap.filter(t, all) { n, of -> busyDetail("${t.label}: comparing with the TomTom's map ($n of $of areas)…") }
+            } else null
+            val pts = r?.kept ?: all
+            r?.let { skipped += it.skipped; unchecked += it.unchecked }
             val sound = if (t.warns) Res.readBytes("files/poi/warning.ogg") else null
             writePoiCategory(d.fs, map, t.category, pts, categoryIconBmp(t.rgb, t.glyph), sound)
-            done += "${t.label} ${pts.size}"
+            done += if (r == null || r.skipped.isEmpty()) "${t.label} ${pts.size}" else "${t.label} ${pts.size} (${r.skipped.size} already on the map)"
         }
         progress = null
+        osmSkipped = skipped
         gen++
-        say("Installed from OpenStreetMap: ${done.joinToString(", ")}. On the TomTom: Navigate to → Point of Interest.")
+        val later = if (unchecked > 0) " $unchecked places couldn't be compared today (TomTom's free daily limit); they were added anyway, so install again tomorrow to drop any duplicates." else ""
+        say("Installed from OpenStreetMap: ${done.joinToString(", ")}.$later On the TomTom: Navigate to → Point of Interest.")
     }
 
     // ---------------------------------------------------------- fuel prices

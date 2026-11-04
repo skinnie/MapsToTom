@@ -128,10 +128,21 @@ finish are stops; the rest are pass-through points the TomTom follows without an
   afterwards. Portugal takes several minutes and downloads only the chosen fuel type, because its
   server is slow.
 - **From OpenStreetMap:** fuel stations, LPG stations, EV chargers, motorhome areas, campsites,
-  supermarkets, pharmacies, beaches, public toilets, drinking water, viewpoints, picnic sites and speed cameras, for the countries of your map. Each type becomes
+  supermarkets, pharmacies, public swimming pools, beaches, public toilets, drinking water,
+  viewpoints, picnic sites and speed cameras, for the countries of your map. Each type becomes
   its own category with an icon; speed cameras also get a warning beep. Downloads use the
   public Overpass servers, which are often busy: MapsToTom tries several. Speed cameras can't
-  be installed for France, where warning of camera positions is illegal.
+  be installed for France, where warning of camera positions is illegal. If you already have
+  TomTom's own speed cameras, leave the OSM ones out: you'd get two warnings for most cameras.
+  - **Skip places already on the TomTom's map** (on by default once a TomTom developer key is
+    saved): each OSM place is compared with TomTom's places of the same kind nearby, and the
+    ones already on the map are left out. The check uses TomTom's online search with your key,
+    remembers the answers for 6 months (a second install is free) and stops at 2,000 searches a
+    day, leaving the rest of the free 2,500 for traffic. Places it couldn't check that day are
+    added anyway; install again the next day to drop them. LPG, drinking water and speed
+    cameras always go in full, because TomTom has no such category to compare with. After an
+    install, "Show the places left out" lists each skipped place with the TomTom entry it
+    matched.
 - **Your Google Maps lists:** export "Saved" and "Maps (your places)" at
   [Google Takeout](https://takeout.google.com) and open the .zip. Each list (and your starred
   places) becomes a category "Google <list>". Places saved without coordinates are looked up.
@@ -168,6 +179,10 @@ their own Bluetooth dial-up (some Samsungs) may be picked instead of MapsToTom.
 Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for
 byte, plus a whole dial-up session); the same design was verified on a real ONE v4 with a laptop as
 the phone. Not yet tried with an Android phone.
+
+MapsToTom needs Android 8 or newer. For an old rooted Android 4.0–4.1 phone kept in the car, the
+separate **TT Link** app does the same job with the same services (written in Go, tested against the
+same 22 recordings): see [ttlink/README.md](ttlink/README.md).
 
 ## Device tools
 

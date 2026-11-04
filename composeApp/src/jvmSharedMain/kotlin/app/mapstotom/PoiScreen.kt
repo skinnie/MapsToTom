@@ -162,10 +162,63 @@ private fun OsmSection(state: AppState) {
         StatusRow(Status.BAD, "Not for France", "Warning of speed camera positions is illegal in France. Remove FR to continue.") {}
     }
     Spacer(Modifier.height(Space.md))
+    SkipKnownControls(state, idle)
+    Spacer(Modifier.height(Space.md))
     PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installOsm(chosen.toList()) },
         enabled = idle && state.device != null && chosen.isNotEmpty(), icon = Icons.Filled.Download)
     Spacer(Modifier.height(Space.xs))
-    Text("Data © OpenStreetMap contributors (ODbL). A whole country takes a minute or two.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+    Text("Data © OpenStreetMap contributors (ODbL). A whole country takes a minute or two, longer the first time it is compared with the TomTom's map.",
+        style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+    SkippedList(state)
+}
+
+/** The "only what the map lacks" switch, and the TomTom key it needs. */
+@Composable
+private fun SkipKnownControls(state: AppState, idle: Boolean) {
+    val t = LocalTokens.current
+    var key by remember { mutableStateOf(state.tomtomKey.orEmpty()) }
+    val hasKey = key.isNotBlank()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(state.osmSkipKnown && hasKey, { state.changeOsmSkipKnown(it) }, enabled = idle && hasKey)
+        Spacer(Modifier.width(Space.md))
+        Text("Skip places already on the TomTom's map", style = MaterialTheme.typography.titleSmall, color = t.text)
+    }
+    Spacer(Modifier.height(Space.xs))
+    Prose(if (hasKey)
+        "Each place is checked with TomTom's online search, using your key. " +
+            "LPG, drinking water and speed cameras always go in full, because TomTom has no such category. " +
+            "%,d checks left today; places checked once are remembered, so installing again is free.".format(state.overlapRequestsLeft())
+        else "Add your free TomTom key to skip places the TomTom's map already has. Without a key, everything is installed.")
+    if (!hasKey || state.platform.carLink == null) {
+        Spacer(Modifier.height(Space.sm))
+        OutlinedTextField(key, { key = it.trim(); state.saveTomtomKey(key) }, Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+            label = { Text("TomTom API key") }, singleLine = true,
+            supportingText = { Text("Free from developer.tomtom.com; the same key the car link uses for traffic") })
+    }
+}
+
+/** What the last install left out as already on the map, so the user can check the matches. */
+@Composable
+private fun SkippedList(state: AppState) {
+    val t = LocalTokens.current
+    val list = state.osmSkipped
+    if (list.isEmpty()) return
+    var open by remember(list) { mutableStateOf(false) }
+    Spacer(Modifier.height(Space.sm))
+    TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
+        Text(if (open) "Hide the ${list.size} places left out" else "Show the ${list.size} places left out as already on the map")
+    }
+    if (open) Panel(Modifier.widthIn(max = Space.measure), padding = PaddingValues(horizontal = Space.md, vertical = Space.xs)) {
+        list.take(300).forEachIndexed { i, s ->
+            if (i > 0) Hairline()
+            Column(Modifier.padding(vertical = Space.xxs)) {
+                Text(s.osmName, style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${s.category.removePrefix("OSM ")} · on the map as \"${s.tomtomName.ifBlank { "unnamed" }}\", ${s.meters} m away",
+                    style = MaterialTheme.typography.bodySmall, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (list.size > 300) Text("…and ${list.size - 300} more", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+    }
 }
 
 // ------------------------------------------------------------------ Google

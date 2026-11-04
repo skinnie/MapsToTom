@@ -71,6 +71,16 @@ class DesktopPlatform : Platform {
     private val prefs = java.util.prefs.Preferences.userRoot().node("app/mapstotom")
     override fun loadSetting(key: String): String? = prefs.get(key, null)
     override fun saveSetting(key: String, value: String?) { if (value == null) prefs.remove(key) else prefs.put(key, value); runCatching { prefs.flush() } }
+
+    /** The usual per-user app data folder: %APPDATA%, ~/Library/Application Support, or $XDG_DATA_HOME / ~/.local/share. */
+    override val dataDir: File by lazy {
+        val home = System.getProperty("user.home"); val os = System.getProperty("os.name").lowercase()
+        when {
+            "win" in os -> File(System.getenv("APPDATA") ?: home, "MapsToTom")
+            "mac" in os -> File(home, "Library/Application Support/MapsToTom")
+            else -> File(System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.local/share", "mapstotom")
+        }
+    }
 }
 
 fun main() {

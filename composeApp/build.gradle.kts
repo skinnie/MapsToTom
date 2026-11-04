@@ -104,5 +104,5 @@ compose.desktop {
 
 // Optional real-data tests: ./gradlew desktopTest -Pm2t.online=1 -Pm2t.goTtsystem=/path/to/ttsystem
 tasks.withType<Test>().configureEach {
-    listOf("m2t.online", "m2t.goTtsystem", "m2t.shots", "m2t.device", "m2t.gpx", "m2t.stage", "m2t.gpi", "m2t.gpiInstall", "m2t.fuelOut").forEach { k -> project.findProperty(k)?.let { systemProperty(k, it) } }
+    listOf("m2t.online", "m2t.goTtsystem", "m2t.shots", "m2t.device", "m2t.gpx", "m2t.stage", "m2t.gpi", "m2t.gpiInstall", "m2t.fuelOut", "m2t.overlap", "m2t.osmInstall", "m2t.osmCountries", "m2t.osmKeyFile", "m2t.osmBudget").forEach { k -> project.findProperty(k)?.let { systemProperty(k, it) } }
 }

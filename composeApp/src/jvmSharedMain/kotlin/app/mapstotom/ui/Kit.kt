@@ -80,6 +80,7 @@ fun Hairline(modifier: Modifier = Modifier) = HorizontalDivider(modifier, thickn
 
 /** One line of a status list: icon, title, detail, and an optional action on the right. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun StatusRow(
     status: Status,
     title: String,
@@ -87,20 +88,34 @@ fun StatusRow(
     modifier: Modifier = Modifier,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    Row(modifier.fillMaxWidth().padding(vertical = Space.md), verticalAlignment = Alignment.CenterVertically) {
-        Icon(statusIcon(status), contentDescription = null, tint = statusColor(status), modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(Space.md))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = LocalTokens.current.text)
-            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = LocalTokens.current.textMuted,
-                modifier = Modifier.widthIn(max = Space.measure))
-        }
-        if (trailing != null) {
+    // In a narrow column (a phone, or half of an upright tablet) the buttons go under the text,
+    // so the text isn't squeezed to one word per line.
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val stack = trailing != null && maxWidth < STACK_BELOW
+        Row(Modifier.fillMaxWidth().padding(vertical = Space.md), verticalAlignment = if (stack) Alignment.Top else Alignment.CenterVertically) {
+            Icon(statusIcon(status), contentDescription = null, tint = statusColor(status), modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(Space.md))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically, content = trailing)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = LocalTokens.current.text)
+                if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = LocalTokens.current.textMuted,
+                    modifier = Modifier.widthIn(max = Space.measure))
+                if (stack) {
+                    Spacer(Modifier.height(Space.sm))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically, content = trailing!!)
+                    }
+                }
+            }
+            if (trailing != null && !stack) {
+                Spacer(Modifier.width(Space.md))
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically, content = trailing)
+            }
         }
     }
 }
+
+/** Below this width a status row puts its buttons under the text. */
+private val STACK_BELOW = 460.dp
 
 /** "Label    value" definition row. */
 @Composable

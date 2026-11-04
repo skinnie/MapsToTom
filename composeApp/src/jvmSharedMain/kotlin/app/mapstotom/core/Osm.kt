@@ -2,21 +2,33 @@ package app.mapstotom.core
 
 /**
  * POI categories built from OpenStreetMap (Overpass API). Data © OpenStreetMap contributors, ODbL.
- * [filter] is an Overpass selector run against the chosen countries.
+ * [filter] is an Overpass selector run against the chosen countries; several selectors are separated by ';'.
+ * [tomtom] lists the TomTom Search categories that mean the same place, for skipping what the TomTom's own map
+ * already has (see [MapOverlap]); null = TomTom's map has no such category, so nothing is skipped.
+ * [matchMeters]: how close a TomTom place must be to count as the same one (large sites get more room).
  */
-enum class OsmPoiType(val label: String, val category: String, val filter: String, val rgb: Int, val glyph: Char, val warns: Boolean = false) {
-    FUEL("Fuel stations", "OSM Fuel", "nwr[amenity=fuel]", 0xE07000, 'F'),
+enum class OsmPoiType(val label: String, val category: String, val filter: String, val rgb: Int, val glyph: Char,
+                      val warns: Boolean = false, val tomtom: String? = null, val matchMeters: Double = 120.0) {
+    FUEL("Fuel stations", "OSM Fuel", "nwr[amenity=fuel]", 0xE07000, 'F', tomtom = "7311"),
+    // TomTom doesn't say which stations sell LPG, so an LPG station is never "already on the map".
     LPG("LPG (autogas)", "OSM LPG", "nwr[amenity=fuel][\"fuel:lpg\"=yes]", 0x0077AA, 'L'),
-    EV("EV chargers", "OSM EV chargers", "nwr[amenity=charging_station]", 0x1A8F3C, 'E'),
-    MOTORHOME("Motorhome areas", "OSM Motorhome areas", "nwr[tourism=caravan_site]", 0x1F5FBF, 'M'),
-    CAMPSITE("Campsites", "OSM Campsites", "nwr[tourism=camp_site]", 0x2E6B2E, 'C'),
-    SUPERMARKET("Supermarkets", "OSM Supermarkets", "nwr[shop=supermarket]", 0x7A3FB0, 'S'),
-    PHARMACY("Pharmacies", "OSM Pharmacies", "nwr[amenity=pharmacy]", 0x0A9A6A, '+'),
-    BEACH("Beaches", "OSM Beaches", "nwr[natural=beach]", 0xD9A400, 'B'),
-    TOILETS("Public toilets", "OSM Toilets", "nwr[amenity=toilets][access!=private][access!=customers]", 0x3366CC, 'T'),
+    EV("EV chargers", "OSM EV chargers", "nwr[amenity=charging_station]", 0x1A8F3C, 'E', tomtom = "7309"),
+    MOTORHOME("Motorhome areas", "OSM Motorhome areas", "nwr[tourism=caravan_site]", 0x1F5FBF, 'M', tomtom = "7360003", matchMeters = 250.0),
+    CAMPSITE("Campsites", "OSM Campsites", "nwr[tourism=camp_site]", 0x2E6B2E, 'C', tomtom = "7360", matchMeters = 250.0),
+    SUPERMARKET("Supermarkets", "OSM Supermarkets", "nwr[shop=supermarket]", 0x7A3FB0, 'S', tomtom = "7332005"),
+    PHARMACY("Pharmacies", "OSM Pharmacies", "nwr[amenity=pharmacy]", 0x0A9A6A, '+', tomtom = "7326"),
+    BEACH("Beaches", "OSM Beaches", "nwr[natural=beach]", 0xD9A400, 'B', tomtom = "9357", matchMeters = 300.0),
+    TOILETS("Public toilets", "OSM Toilets", "nwr[amenity=toilets][access!=private][access!=customers]", 0x3366CC, 'T', tomtom = "9932005", matchMeters = 60.0),
     DRINKING_WATER("Drinking water", "OSM Drinking water", "node[amenity=drinking_water][access!=private]", 0x1E90FF, 'W'),
-    VIEWPOINT("Viewpoints", "OSM Viewpoints", "node[tourism=viewpoint]", 0x8B5A2B, 'V'),
-    PICNIC("Picnic sites", "OSM Picnic sites", "nwr[tourism=picnic_site]", 0x4F8A2B, 'P'),
+    VIEWPOINT("Viewpoints", "OSM Viewpoints", "node[tourism=viewpoint]", 0x8B5A2B, 'V', tomtom = "7337", matchMeters = 150.0),
+    PICNIC("Picnic sites", "OSM Picnic sites", "nwr[tourism=picnic_site]", 0x4F8A2B, 'P', tomtom = "9362033", matchMeters = 150.0),
+    // Public pools are tagged as a swimming sports centre, or as a pool with a name that isn't private;
+    // unnamed leisure=swimming_pool areas are mostly garden pools, so those are left out. TomTom files some
+    // municipal pools as sports centres (a gym inside the municipal pools), so both count.
+    POOL("Swimming pools (public)", "OSM Swimming pools",
+        "nwr[leisure=sports_centre][sport~\"swimming\"];nwr[leisure=swimming_pool][name][access!~\"^(private|no)$\"]", 0x0099CC, '~',
+        tomtom = "7338,7320", matchMeters = 150.0),
+    // TomTom's Search API has no cameras; its own camera service is a separate paid file on the card.
     SPEED_CAMERA("Speed cameras", "OSM Speed cameras", "node[highway=speed_camera]", 0xD21F1F, '!', warns = true);
 
     /** Countries where this category may not be used (France bans warnings of camera positions). */
@@ -49,7 +61,8 @@ private val OVERPASS = listOf(
 
 fun overpassQuery(type: OsmPoiType, countries: List<String>): String {
     val areas = countries.joinToString("") { "area[\"ISO3166-1\"=\"$it\"][admin_level=2];" }
-    return "[out:json][timeout:300];($areas)->.a;(${type.filter}(area.a););out center tags;"
+    val selectors = type.filter.split(';').joinToString("") { "$it(area.a);" }
+    return "[out:json][timeout:300];($areas)->.a;($selectors);out center tags;"
 }
 
 /** Download one category for these countries. Tries a second server when the first is busy. */
@@ -101,7 +114,11 @@ internal fun osmName(tags: Map<*, *>, type: OsmPoiType): String {
         OsmPoiType.FUEL, OsmPoiType.LPG, OsmPoiType.SUPERMARKET -> t("brand") ?: t("name")
         OsmPoiType.EV -> listOfNotNull(t("operator") ?: t("brand") ?: t("name"), t("capacity")?.let { "x$it" }).joinToString(" ").ifEmpty { null }
         else -> t("name") ?: t("brand")
-    } ?: when (type) { OsmPoiType.BEACH -> "Beach"; OsmPoiType.DRINKING_WATER -> "Drinking water"; else -> type.label.removeSuffix("s") }
+    } ?: when (type) {
+        OsmPoiType.BEACH -> "Beach"; OsmPoiType.DRINKING_WATER -> "Drinking water"
+        OsmPoiType.PHARMACY -> "Pharmacy"; OsmPoiType.POOL -> "Swimming pool"
+        else -> type.label.removeSuffix("s")
+    }
     val town = t("addr:city") ?: t("addr:place")
     return if (town != null && !base.contains(town, ignoreCase = true)) "$base, $town" else base
 }
