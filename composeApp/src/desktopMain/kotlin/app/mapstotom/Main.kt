@@ -114,12 +114,14 @@ fun main() {
         val platform = remember { DesktopPlatform() }
         val scope = rememberCoroutineScope()
         val state = remember { AppState(platform, scope) }
-        // Watch the clipboard: a Google Maps link copied anywhere is added once.
+        // Watch the clipboard: a Google Maps link copied anywhere is added once. Read off the UI thread: on X11 a
+        // read waits for the program that owns the clipboard to answer, which froze the window when it didn't.
         LaunchedEffect(Unit) {
-            var last = platform.clipboardText()
+            suspend fun read() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { platform.clipboardText() }
+            var last = read()
             while (true) {
                 delay(1000)
-                val now = platform.clipboardText()
+                val now = read()
                 if (now != null && now != last && state.watchClipboard) {
                     val link = now.trim()
                     if (link.startsWith("http") && (isGoogleMapsUrl(link) || isShortLink(link) ||

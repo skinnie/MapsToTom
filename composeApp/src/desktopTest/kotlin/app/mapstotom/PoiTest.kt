@@ -9,6 +9,98 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.*
 
+class PoiNamesTest {
+    @Test fun languageFromBif() {
+        assertEquals("pt", tomtomLanguage(mapOf("UserLanguage" to "Português")))
+        assertEquals("de", tomtomLanguage(mapOf("UserLanguage" to "Deutsch")))
+        assertEquals("es", tomtomLanguage(mapOf("UserLanguage" to "Español")))
+        assertEquals("en", tomtomLanguage(mapOf("UserLanguage" to "English UK")))
+        assertEquals("en", tomtomLanguage(emptyMap()))
+    }
+
+    @Test fun namesArePlainAscii() {
+        assertEquals("Piscinas (OSM)", OsmPoiType.POOL.categoryName("pt"))
+        assertEquals("Agua potavel (OSM)", OsmPoiType.DRINKING_WATER.categoryName("pt"))
+        assertEquals("Schwimmbaeder (OSM)", OsmPoiType.POOL.categoryName("de"))
+        assertEquals("Swimming pools (OSM)", OsmPoiType.POOL.categoryName("xx"))
+        for (t in OsmPoiType.entries) for (l in POI_LANGUAGES) assertTrue(t.categoryName(l).all { it.code < 128 }, t.categoryName(l))
+    }
+
+    @Test fun renamesOnlyOurOwnCategories() {
+        val dir = Files.createTempDirectory("names").toFile(); val fs = LocalFs(dir)
+        for (f in listOf("Map/OSM Swimming pools.ov2", "Map/OSM Swimming pools.bmp", "Map/Campsites (OSM).ov2",
+                "Map/Speed cameras (OSM).ov2", "Map/Speed cameras (OSM).ogg", "Map/Piscinas Municipais.ov2")) fs.write(f, ByteArray(1))
+        val done = renameTranslatedCategories(fs, "Map", "pt")
+        assertEquals(3, done.size)
+        assertEquals(listOf("Parques de campismo (OSM).ov2", "Piscinas (OSM).bmp", "Piscinas (OSM).ov2", "Piscinas Municipais.ov2",
+            "Radares (OSM).ogg", "Radares (OSM).ov2"), fs.list("Map"))
+        assertTrue(renameTranslatedCategories(fs, "Map", "pt").isEmpty())
+        assertEquals(3, renameTranslatedCategories(fs, "Map", "en").size)
+        assertTrue(fs.exists("Map/Swimming pools (OSM).ov2"))
+        dir.deleteRecursively()
+    }
+}
+
+class BootRenameTest {
+    private fun card(vararg files: String): Pair<java.io.File, LocalFs> {
+        val dir = Files.createTempDirectory("card").toFile(); val fs = LocalFs(dir)
+        fs.write("ttgo.bif", "[TomTomGo]\r\nUserLanguage=Português\r\nUserName=\r\n".toByteArray())
+        fs.write("ttn", "#! /bin/sh\n\n/mnt/sdcard/fixdate/resetgps &\n(/bin/ttn &)\n".toByteArray())
+        files.forEach { fs.write("Map/$it", ByteArray(1)) }
+        return dir to fs
+    }
+
+    @Test fun iOverlanderNames() {
+        assertEquals("Campismo selvagem (iOverlander)", gpiTranslated("iOverlander Portugal", "Wild Camping")!!.nameIn("pt"))
+        assertNull(gpiTranslated("Camper POIs", "Wild Camping"))
+        for (c in TRANSLATED_CATEGORIES) for (l in POI_LANGUAGES) {
+            val n = c.nameIn(l)
+            assertTrue(n.length <= 40 && n.all { it.code in 32..126 } && n.none { it in "\"$`\\" }, n)
+        }
+    }
+
+    @Test fun hookIsAddedOnceAndKeepsTheOldTtn() {
+        val (dir, fs) = card("Piscinas (OSM).ov2")
+        assertTrue(installBootRename(fs, "Map"))
+        assertFalse(installBootRename(fs, "Map"))
+        val ttn = fs.read("ttn")!!.toString(Charsets.UTF_8)
+        assertTrue(ttn.startsWith("#! /bin/sh\n"))
+        assertEquals(1, Regex("poilang.sh ]").findAll(ttn).count())
+        assertTrue(ttn.indexOf("poilang") < ttn.indexOf("resetgps"))
+        assertEquals("#! /bin/sh\n\n/mnt/sdcard/fixdate/resetgps &\n(/bin/ttn &)\n", fs.read("mapstotom/ttn.before-mapstotom")!!.toString(Charsets.UTF_8))
+        assertEquals("Português\r\n", fs.read("mapstotom/lastlang")!!.toString(Charsets.UTF_8))
+        dir.deleteRecursively()
+    }
+
+    @Test fun noHookOnAStockTomTom() {
+        val (dir, fs) = card(); fs.write("ttn", byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
+        assertFalse(installBootRename(fs, "Map")); assertFalse(fs.exists("mapstotom/poilang.sh"))
+        dir.deleteRecursively()
+    }
+
+    /** Runs the start-up script with the PC's busybox sh, as the TomTom would. */
+    @Test fun scriptRenamesOnlyWhenTheLanguageChanged() {
+        val sh = listOf("/usr/bin/busybox", "/bin/busybox").firstOrNull { java.io.File(it).canExecute() } ?: return
+        val (dir, fs) = card("Swimming pools (OSM).ov2", "Swimming pools (OSM).bmp", "iOverlander Wild Camping.ov2", "Praias.pt.ov2")
+        fs.write("mapstotom/poilang.sh", poiLangScript("Map").toByteArray())
+        fun run(): Long {
+            val t0 = System.nanoTime()
+            val p = ProcessBuilder(sh, "sh", "${dir}/mapstotom/poilang.sh").also { it.environment()["R"] = dir.path }.redirectErrorStream(true).start()
+            val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+            assertEquals(0, p.waitFor(), out)
+            return (System.nanoTime() - t0) / 1_000_000
+        }
+        run()
+        assertEquals(listOf("Campismo selvagem (iOverlander).ov2", "Piscinas (OSM).bmp", "Piscinas (OSM).ov2", "Praias.pt.ov2"), fs.list("Map"))
+        val unchanged = run()
+        println("start-up script with no language change: $unchanged ms")
+        fs.write("ttgo.bif", "[TomTomGo]\r\nUserLanguage=English UK\r\n".toByteArray())
+        run()
+        assertEquals(listOf("Praias.pt.ov2", "Swimming pools (OSM).bmp", "Swimming pools (OSM).ov2", "Wild Camping (iOverlander).ov2"), fs.list("Map"))
+        dir.deleteRecursively()
+    }
+}
+
 class CountriesTest {
     @Test fun parsesCodes() = assertEquals(listOf("PT", "ES"), parseCountries(" pt, ES;es "))
     @Test fun namesTypos() {

@@ -8,7 +8,8 @@ package app.mapstotom.core
  * [matchMeters]: how close a TomTom place must be to count as the same one (large sites get more room).
  */
 enum class OsmPoiType(val label: String, val category: String, val filter: String, val rgb: Int, val glyph: Char,
-                      val warns: Boolean = false, val tomtom: String? = null, val matchMeters: Double = 120.0) {
+                      val warns: Boolean = false, val tomtom: String? = null, val matchMeters: Double = 120.0,
+                      val looseTomtom: Set<Int> = emptySet(), val nameHint: Regex? = null) {
     FUEL("Fuel stations", "OSM Fuel", "nwr[amenity=fuel]", 0xE07000, 'F', tomtom = "7311"),
     // TomTom doesn't say which stations sell LPG, so an LPG station is never "already on the map".
     LPG("LPG (autogas)", "OSM LPG", "nwr[amenity=fuel][\"fuel:lpg\"=yes]", 0x0077AA, 'L'),
@@ -27,7 +28,8 @@ enum class OsmPoiType(val label: String, val category: String, val filter: Strin
     // municipal pools as sports centres (a gym inside the municipal pools), so both count.
     POOL("Swimming pools (public)", "OSM Swimming pools",
         "nwr[leisure=sports_centre][sport~\"swimming\"];nwr[leisure=swimming_pool][name][access!~\"^(private|no)$\"]", 0x0099CC, '~',
-        tomtom = "7338,7320", matchMeters = 150.0),
+        tomtom = "7338,7320", matchMeters = 150.0, looseTomtom = setOf(7320),
+        nameHint = Regex("piscin|swim|pool|aqua|nata[cç]|zwem|schwimm|hallenbad|freibad|baln", RegexOption.IGNORE_CASE)),
     // TomTom's Search API has no cameras; its own camera service is a separate paid file on the card.
     SPEED_CAMERA("Speed cameras", "OSM Speed cameras", "node[highway=speed_camera]", 0xD21F1F, '!', warns = true);
 

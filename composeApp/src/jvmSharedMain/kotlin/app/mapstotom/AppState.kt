@@ -22,6 +22,8 @@ class DeviceInfo(val fs: DeviceFs, val bif: Map<String, String>, val mapFolder: 
         val name = bif["DeviceName"].orEmpty()
         if (name.isNotEmpty() && !hw.startsWith(name.removePrefix("TomTom ").trim())) "$name $hw" else "TomTom $hw"
     } ?: bif["DeviceName"] ?: "TomTom"
+    /** The TomTom's menu language ("pt", "en"…), for naming POI categories. */
+    val language get() = app.mapstotom.core.tomtomLanguage(bif)
     val navcore get() = bif["ApplicationVersionVersionNumber"]?.let { v -> if (v.length == 4) "${v[0]}.${v.substring(1)}" else v }
 }
 
@@ -157,8 +159,14 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         ejected = false
         fuelTypeChecked = false
         if (osmCountries.isBlank()) osmCountries = countriesForMap(d.mapFolder).joinToString(", ")
+        // The TomTom doesn't translate added POI files, so ours follow its language: rename them if it changed.
+        val renamed = d.mapFolder?.let { m -> runCatching { renameTranslatedCategories(fs, m, d.language) }.getOrNull() }.orEmpty()
+        val hooked = d.mapFolder?.let { m -> runCatching { hasTranslatedCategories(fs, m) && installBootRename(fs, m) }.getOrNull() } == true
         gen++
-        say("Connected: ${d.model}.")
+        say("Connected: ${d.model}." + if (renamed.isEmpty()) "" else
+            " Renamed ${renamed.size} OpenStreetMap ${if (renamed.size == 1) "category" else "categories"} to the TomTom's language (${bif["UserLanguage"]}).")
+        if (renamed.isNotEmpty()) needsRestart()
+        if (hooked) say((note?.text?.let { "$it " } ?: "") + "Added a start-up step to the TomTom so these names follow its menu language by themselves.")
         if (checkGps) checkQuickFix(d)
     }
 
@@ -580,11 +588,12 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             val pts = r?.kept ?: all
             r?.let { skipped += it.skipped; unchecked += it.unchecked }
             val sound = if (t.warns) Res.readBytes("files/poi/warning.ogg") else null
-            writePoiCategory(d.fs, map, t.category, pts, categoryIconBmp(t.rgb, t.glyph), sound)
+            writePoiCategory(d.fs, map, t.categoryName(d.language), pts, categoryIconBmp(t.rgb, t.glyph), sound)
             done += if (r == null || r.skipped.isEmpty()) "${t.label} ${pts.size}" else "${t.label} ${pts.size} (${r.skipped.size} already on the map)"
             stepDetail(i, "%,d added".format(pts.size) + if (r != null && r.skipped.isNotEmpty()) ", %,d already on the map".format(r.skipped.size) else "")
         }
         osmSkipped = skipped
+        runCatching { installBootRename(d.fs, map) }
         gen++
         val later = if (unchecked > 0) " $unchecked places couldn't be compared today (TomTom's free daily limit); they were added anyway, so install again tomorrow to drop any duplicates." else ""
         say("Installed from OpenStreetMap: ${done.joinToString(", ")}.$later On the TomTom: Navigate to → Point of Interest.")
@@ -698,7 +707,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     fun gpiFilter(): ((Point) -> Boolean)? = if (gpiAreaOnly) areaFilter(runCatching { app.mapstotom.core.parseCountries(osmCountries) }.getOrDefault(emptyList())) else null
 
     /** "iOverlander Wild Camping": the file's first word keeps categories from different files apart. */
-    fun gpiCategoryName(c: GpiCategory) = listOfNotNull(gpiFile?.title?.substringBefore(' ')?.takeIf { it.isNotBlank() }, c.name).joinToString(" ")
+    fun gpiCategoryName(c: GpiCategory) = device?.let { d -> gpiTranslated(gpiFile?.title, c.name)?.nameIn(d.language) } ?: listOfNotNull(gpiFile?.title?.substringBefore(' ')?.takeIf { it.isNotBlank() }, c.name).joinToString(" ")
 
     fun installGpi(selected: List<GpiCategory>) = work("Installing…", Job.GPI) {
         val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
@@ -712,6 +721,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             done += "${c.name} ${pts.size}"
         }
         progress = null
+        if (done.isNotEmpty() && gpiTranslated(gpiFile?.title, selected.first().name) != null) runCatching { installBootRename(d.fs, map) }
         gen++
         say(if (done.isEmpty()) "Nothing to install: no places in the chosen countries." else "Installed: ${done.joinToString(", ")}.", done.isEmpty())
     }

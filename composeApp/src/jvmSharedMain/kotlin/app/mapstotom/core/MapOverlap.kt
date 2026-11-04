@@ -54,9 +54,9 @@ class MapOverlap(
     private class Out(val type: OsmPoiType) {
         val kept = mutableListOf<Point>(); val skipped = mutableListOf<Skipped>(); var unchecked = 0
         fun match(pts: List<Point>, near: List<Place>) = pts.forEach { p ->
-            val hit = near.minByOrNull { meters(p.lat, p.lon, it.lat, it.lon) }
+            val hit = near.filter { sameKind(type, it, meters(p.lat, p.lon, it.lat, it.lon)) }.minByOrNull { meters(p.lat, p.lon, it.lat, it.lon) }
             val m = hit?.let { meters(p.lat, p.lon, it.lat, it.lon) }
-            if (hit != null && m!! <= type.matchMeters) skipped += Skipped(type.category, p.name, hit.name, m.toInt()) else kept += p
+            if (hit != null && m!! <= type.matchMeters) skipped += Skipped(type.label, p.name, hit.name, m.toInt()) else kept += p
         }
     }
 
@@ -104,7 +104,8 @@ class MapOverlap(
         throw BudgetSpent() // still 429 after retries: treat as the day's quota
     }
 
-    data class Place(val name: String, val lat: Double, val lon: Double)
+    /** [cats]: TomTom category ids of the place; empty when unknown (answers cached before they were kept). */
+    data class Place(val name: String, val lat: Double, val lon: Double, val cats: List<Int> = emptyList())
     private class BudgetSpent : RuntimeException()
 
     data class Cell(val key: String, val lat0: Double, val lon0: Double)
@@ -128,6 +129,25 @@ class MapOverlap(
         fun meters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double =
             6371000.0 * hypot(Math.toRadians(lat2 - lat1), Math.toRadians(lon2 - lon1) * cos(Math.toRadians((lat1 + lat2) / 2)))
 
+        /** A place only counts if it's very close, within [LOOSE_METERS]. */
+        const val LOOSE_METERS = 25.0
+
+        /**
+         * Whether TomTom's [place], [m] metres away, can stand for an OSM place of [type]. A place from one of the
+         * type's loose categories (a sports centre for a pool) is often something else nearby, such as a gym or a
+         * club, so it counts only when its name says what the type is, or when it's within [LOOSE_METERS].
+         * A place cached without categories is treated as loose for a type that has loose categories.
+         */
+        fun sameKind(type: OsmPoiType, place: Place, m: Double): Boolean {
+            if (type.looseTomtom.isEmpty()) return true
+            val loose = place.cats.isEmpty() || place.cats.all { baseCategory(it) in type.looseTomtom }
+            if (!loose) return true
+            return m <= LOOSE_METERS || type.nameHint?.containsMatchIn(place.name) == true
+        }
+
+        /** 7320002 (a kind of sports centre) → 7320. */
+        fun baseCategory(id: Int): Int { var v = id; while (v >= 10000) v /= 10; return v }
+
         internal fun parseNearby(json: String): List<Place> {
             val root = Json.parse(json) as? Map<*, *> ?: error("Unexpected answer from TomTom")
             return (root["results"] as? List<*>).orEmpty().mapNotNull { e ->
@@ -135,7 +155,9 @@ class MapOverlap(
                 val pos = m["position"] as? Map<*, *> ?: return@mapNotNull null
                 val lat = (pos["lat"] as? Number)?.toDouble() ?: return@mapNotNull null
                 val lon = (pos["lon"] as? Number)?.toDouble() ?: return@mapNotNull null
-                Place(((m["poi"] as? Map<*, *>)?.get("name") as? String).orEmpty(), lat, lon)
+                val poi = m["poi"] as? Map<*, *>
+                val cats = (poi?.get("categorySet") as? List<*>).orEmpty().mapNotNull { ((it as? Map<*, *>)?.get("id") as? Number)?.toInt() }
+                Place((poi?.get("name") as? String).orEmpty(), lat, lon, cats)
             }
         }
     }
@@ -157,8 +179,10 @@ class OverlapCache(private val file: File?, private val maxAgeDays: Long = 180, 
                 val f = line.split('\t'); if (f.size != 4) continue
                 val day = f[2].toLongOrNull() ?: continue
                 val places = if (f[3] == FULL) null else if (f[3].isEmpty()) emptyList() else f[3].split('\u001e').mapNotNull { p ->
-                    val g = p.split('\u001f'); if (g.size != 3) null
-                    else MapOverlap.Place(g[2], g[0].toDoubleOrNull() ?: return@mapNotNull null, g[1].toDoubleOrNull() ?: return@mapNotNull null)
+                    // lat, lon, name[, category ids separated by commas]
+                    val g = p.split('\u001f'); if (g.size != 3 && g.size != 4) null
+                    else MapOverlap.Place(g[2], g[0].toDoubleOrNull() ?: return@mapNotNull null, g[1].toDoubleOrNull() ?: return@mapNotNull null,
+                        g.getOrNull(3)?.split(',')?.mapNotNull { it.toIntOrNull() }.orEmpty())
                 }
                 if (!f[1].startsWith(MapOverlap.CELL_VERSION + ":")) continue // an older cell size
                 map["${f[0]}\t${f[1]}"] = Entry(day, places)
@@ -183,7 +207,7 @@ class OverlapCache(private val file: File?, private val maxAgeDays: Long = 180, 
             for ((k, e) in map) {
                 if (today() - e.day > maxAgeDays) continue
                 w.write(k); w.write("\t${e.day}\t")
-                w.write(e.places?.joinToString("\u001e") { "${it.lat}\u001f${it.lon}\u001f${clean(it.name)}" } ?: FULL); w.write("\n")
+                w.write(e.places?.joinToString("\u001e") { "${it.lat}\u001f${it.lon}\u001f${clean(it.name)}" + if (it.cats.isEmpty()) "" else "\u001f" + it.cats.joinToString(",") } ?: FULL); w.write("\n")
             }
         }
         if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }

@@ -205,6 +205,7 @@ private fun SkipKnownControls(state: AppState, idle: Boolean) {
         Spacer(Modifier.height(Space.sm))
         OutlinedTextField(key, { key = it.trim(); state.saveTomtomKey(key) }, Modifier.widthIn(max = 360.dp).fillMaxWidth(),
             label = { Text("TomTom API key") }, singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
             supportingText = { Text("Free from developer.tomtom.com; the same key the car link uses for traffic") })
     }
 }
@@ -225,7 +226,7 @@ private fun SkippedList(state: AppState) {
             if (i > 0) Hairline()
             Column(Modifier.padding(vertical = Space.xxs)) {
                 Text(s.osmName, style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${s.category.removePrefix("OSM ")} · on the map as \"${s.tomtomName.ifBlank { "unnamed" }}\", ${s.meters} m away",
+                Text("${s.category} · on the map as \"${s.tomtomName.ifBlank { "unnamed" }}\", ${s.meters} m away",
                     style = MaterialTheme.typography.bodySmall, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }

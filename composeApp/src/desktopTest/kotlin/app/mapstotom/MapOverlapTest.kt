@@ -17,7 +17,7 @@ private class FakeTomTom(val places: List<MapOverlap.Place>, val code: Int = 200
         val r = u.first("radius")!!.toDouble(); val limit = u.first("limit")!!.toInt()
         val hits = places.map { it to MapOverlap.meters(lat, lon, it.lat, it.lon) }.filter { it.second <= r }.sortedBy { it.second }.take(limit)
         val body = hits.joinToString(",", "{\"results\":[", "]}") { (p, d) ->
-            "{\"dist\":$d,\"poi\":{\"name\":\"${p.name}\"},\"position\":{\"lat\":${p.lat},\"lon\":${p.lon}}}"
+            "{\"dist\":$d,\"poi\":{\"name\":\"${p.name}\",\"categorySet\":[${p.cats.joinToString(",") { "{\"id\":$it}" }}]},\"position\":{\"lat\":${p.lat},\"lon\":${p.lon}}}"
         }
         return HttpResponse(200, emptyMap(), body.toByteArray())
     }
@@ -41,6 +41,27 @@ class MapOverlapTest {
         assertEquals(1, r.skipped.size); assertEquals("Galp", r.skipped[0].tomtomName); assertTrue(r.skipped[0].meters in 49..50, "meters ${r.skipped[0].meters}")
         assertEquals(0, r.unchecked)
         assertEquals(1, r.requests, "both points share one cell, so one search")
+    }
+
+    @Test fun aGymNextToAPoolDoesNotHideIt() {
+        val pool = Point("Piscina Municipal Coberta", 39.60, -8.80)
+        fun run(vararg tt: MapOverlap.Place) = MapOverlap("k", FakeTomTom(tt.toList()), OverlapCache(null), budget()).filter(OsmPoiType.POOL, listOf(pool))
+        // A sports centre 60 m away named like a gym or a club: not the pool.
+        assertEquals(1, run(MapOverlap.Place("Studio 601", 39.6005, -8.80, listOf(7320002))).kept.size)
+        // A sports centre named as a pool, or one right on top of it: the same place.
+        assertEquals(0, run(MapOverlap.Place("Piscinas Municipais", 39.6005, -8.80, listOf(7320))).kept.size)
+        assertEquals(0, run(MapOverlap.Place("Ginasio", 39.6001, -8.80, listOf(7320))).kept.size)
+        // TomTom's own swimming-pool category counts at the usual distance, whatever the name.
+        assertEquals(0, run(MapOverlap.Place("Complexo Desportivo", 39.6010, -8.80, listOf(7338))).kept.size)
+        // Cached without categories: treated as a sports centre.
+        assertEquals(1, run(MapOverlap.Place("Barca Balance Health Club", 39.6005, -8.80)).kept.size)
+    }
+
+    @Test fun categoriesSurviveTheCache() {
+        val f = Files.createTempFile("ov", ".txt").toFile()
+        OverlapCache(f).apply { put("7338", "q44:1:2", listOf(MapOverlap.Place("A", 1.0, 2.0, listOf(7338, 7320002)), MapOverlap.Place("B", 1.0, 2.0))); save() }
+        assertEquals(listOf(listOf(7338, 7320002), emptyList()), OverlapCache(f).get("7338", "q44:1:2")!!.map { it.cats })
+        f.delete()
     }
 
     @Test fun matchDistanceIsPerType() {
@@ -133,19 +154,21 @@ class MapOverlapTest {
 
 /**
  * Install OSM categories into a map folder like the app does, with the duplicate check:
- * -Pm2t.osmInstall=<map dir> -Pm2t.osmCountries=PT -Pm2t.osmKeyFile=<file with the TomTom key> [-Pm2t.osmBudget=1500].
- * Every type except speed cameras; TomTom's answers are cached in the app's own cache file.
+ * -Pm2t.osmInstall=<map dir> -Pm2t.osmCountries=PT -Pm2t.osmKeyFile=<file with the TomTom key> [-Pm2t.osmBudget=1500]
+ * [-Pm2t.osmTypes=POOL,FUEL]. Every type except speed cameras unless osmTypes names some; TomTom's answers are
+ * cached in the app's own cache file.
  */
 class OsmInstallRun {
     @Test fun run() {
         val dir = System.getProperty("m2t.osmInstall") ?: return
         val key = File(System.getProperty("m2t.osmKeyFile")).readText().trim()
-        val cc = System.getProperty("m2t.osmCountries", "PT").split(',')
+        val cc = parseCountries(System.getProperty("m2t.osmCountries", "PT"))
+        val only = System.getProperty("m2t.osmTypes")?.split(',')?.map { it.trim().uppercase() }?.toSet()
         val net = RealNet()
         val cacheFile = File(DesktopPlatform().dataDir, "tomtom-poi-check.txt")
         val overlap = MapOverlap(key, net, OverlapCache(cacheFile), budget(System.getProperty("m2t.osmBudget", "1500").toInt()))
         val skippedOut = StringBuilder()
-        for (t in OsmPoiType.entries.filter { !it.warns }) {
+        for (t in OsmPoiType.entries.filter { if (only != null) it.name in only else !it.warns }) {
             var all: List<Point>? = null
             for (attempt in 1..3) {
                 all = runCatching { fetchOsmPois(t, cc, net) }.onFailure { println("${t.label}: ${it.message} (attempt $attempt)") }.getOrNull()
@@ -155,7 +178,7 @@ class OsmInstallRun {
             if (all == null) { println("${t.label}: SKIPPED, OpenStreetMap didn't answer"); continue }
             val r = if (t.tomtom != null) overlap.filter(t, all) else null
             val pts = r?.kept ?: all
-            writePoiCategory(LocalFs(File(dir)), "", t.category, pts, categoryIconBmp(t.rgb, t.glyph))
+            writePoiCategory(LocalFs(File(dir)), "", t.categoryName(System.getProperty("m2t.osmLang", "en")), pts, categoryIconBmp(t.rgb, t.glyph))
             r?.skipped?.forEach { skippedOut.append("${it.category}\t${it.osmName}\t${it.tomtomName}\t${it.meters}\n") }
             println("${t.label}: OSM ${all.size}, written ${pts.size}, skipped ${r?.skipped?.size ?: 0}, unchecked ${r?.unchecked ?: 0}, requests ${r?.requests ?: 0}")
         }
