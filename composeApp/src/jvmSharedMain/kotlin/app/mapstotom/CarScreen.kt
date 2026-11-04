@@ -60,10 +60,12 @@ fun ColumnScope.CarScreen(state: AppState) {
         "3. On the TomTom: Phone menu, find phones, pick this phone and use PIN 0000 here when asked.\n" +
         "4. Keep Bluetooth on. Leave the link running; Android shows a notification while it is on.")
 
-    if (log.isNotEmpty()) {
-        Spacer(Modifier.height(Space.xxl))
-        Text("Log", style = MaterialTheme.typography.headlineSmall, color = t.text)
-        Spacer(Modifier.height(Space.sm))
+    Spacer(Modifier.height(Space.xxl))
+    Text("Log", style = MaterialTheme.typography.headlineSmall, color = t.text)
+    Spacer(Modifier.height(Space.sm))
+    if (log.isEmpty()) Panel { EmptyState(Icons.Filled.Notes, "Nothing logged yet",
+        if (phase == Phase.OFF) "Press Start. The TomTom's calls and each Live request show up here." else "Waiting for the TomTom to call this phone.") }
+    else {
         Panel(Modifier.fillMaxWidth()) {
             log.takeLast(40).asReversed().forEach {
                 Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = t.textMuted)

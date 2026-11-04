@@ -35,17 +35,22 @@ fun ColumnScope.GpsScreen(state: AppState) {
         ScreenHeader("GPS health", "Checks the satellite data, the 2019 date fix and the clock on the TomTom.")
         NeedDevice(state); return
     }
-    val view by produceState<GpsView?>(null, d, state.gen) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                GpsView(quickFixOnDevice(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
-                    d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs),
-                    if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null)
-            }.getOrNull()
-        }
+    val load by produceLoad(d, state.gen) {
+        GpsView(quickFixOnDevice(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
+            d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs),
+            if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null)
     }
-    val v = view ?: return
     val chip = d.chip.chip
+    val subtitle = "${chip.label}" + (d.chip.firmware.takeIf { it.isNotEmpty() }?.let { ", firmware $it" } ?: "") + "."
+    val v = when (val l = load) {
+        Load.Loading -> {
+            ScreenHeader("GPS health", subtitle)
+            Panel(padding = PaddingValues(horizontal = Space.lg, vertical = Space.sm)) { SkeletonRows(if (chip == Chip.GL2) 4 else 3) }
+            return
+        }
+        is Load.Failed -> { ScreenHeader("GPS health", subtitle); LoadFailed(state, "the GPS files", l); return }
+        is Load.Ready -> l.value
+    }
     val idle = state.busy == null
 
     // ---- the three checks
@@ -86,7 +91,7 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val checks = listOfNotNull(quick, dateFix, clock)
     val problems = checks.count { it.status == Status.BAD || it.status == Status.WARN }
 
-    ScreenHeader("GPS health", "${chip.label}" + (d.chip.firmware.takeIf { it.isNotEmpty() }?.let { ", firmware $it" } ?: "") + ".")
+    ScreenHeader("GPS health", subtitle)
 
     // ---- summary leads
     Panel(padding = PaddingValues(horizontal = Space.lg, vertical = Space.sm)) {
@@ -100,8 +105,9 @@ fun ColumnScope.GpsScreen(state: AppState) {
         Hairline()
         StatusRow(quick.status, quick.title, quick.detail) {
             if (chip.quickFixProvider != null) {
-                if (quick.status == Status.OK) SecondaryButton("Update", { state.updateQuickFix() }, enabled = idle)
-                else PrimaryButton("Update", { state.updateQuickFix() }, enabled = idle)
+                val busy = state.busy == "Downloading QuickGPSFix…"
+                if (quick.status == Status.OK) SecondaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
+                else PrimaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
             }
         }
         Hairline()
@@ -121,6 +127,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
             }
         }
     }
+
+    JobFeedback(state, Job.GPS)
 
     // ---- details, quieter
     Spacer(Modifier.height(Space.xxl))

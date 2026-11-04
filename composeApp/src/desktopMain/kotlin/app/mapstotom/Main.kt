@@ -1,5 +1,7 @@
 package app.mapstotom
 
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.dragData
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,6 +38,29 @@ class DesktopPlatform : Platform {
     private fun chooser(title: String, dirs: Boolean) = JFileChooser(lastDir ?: File(System.getProperty("user.home"))).apply {
         dialogTitle = title
         fileSelectionMode = if (dirs) JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
+    }
+
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @androidx.compose.runtime.Composable
+    override fun fileDrop(onFiles: (List<File>) -> Unit, onHover: (Boolean) -> Unit): androidx.compose.ui.Modifier {
+        val files = androidx.compose.runtime.rememberUpdatedState(onFiles)
+        val hover = androidx.compose.runtime.rememberUpdatedState(onHover)
+        val target = remember {
+            object : androidx.compose.ui.draganddrop.DragAndDropTarget {
+                override fun onEntered(event: androidx.compose.ui.draganddrop.DragAndDropEvent) = hover.value(true)
+                override fun onExited(event: androidx.compose.ui.draganddrop.DragAndDropEvent) = hover.value(false)
+                override fun onEnded(event: androidx.compose.ui.draganddrop.DragAndDropEvent) = hover.value(false)
+                override fun onDrop(event: androidx.compose.ui.draganddrop.DragAndDropEvent): Boolean {
+                    hover.value(false)
+                    val list = (event.dragData() as? androidx.compose.ui.draganddrop.DragData.FilesList)?.readFiles()
+                        ?.mapNotNull { runCatching { File(URI(it)) }.getOrNull() }.orEmpty()
+                    if (list.isEmpty()) return false
+                    files.value(list); return true
+                }
+            }
+        }
+        return androidx.compose.ui.Modifier.dragAndDropTarget(
+            shouldStartDragAndDrop = { it.dragData() is androidx.compose.ui.draganddrop.DragData.FilesList }, target = target)
     }
 
     override suspend fun pickFolder(purpose: FolderPurpose): DeviceFs? {

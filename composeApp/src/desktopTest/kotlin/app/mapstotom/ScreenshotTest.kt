@@ -27,6 +27,8 @@ class ScreenshotTest {
         override suspend fun saveFile(suggestedName: String, data: ByteArray): String? = null
         override fun clipboardText(): String? = null
         override fun openUrl(url: String) {}
+        @androidx.compose.runtime.Composable
+        override fun fileDrop(onFiles: (List<File>) -> Unit, onHover: (Boolean) -> Unit) = androidx.compose.ui.Modifier // drop zones shown, as on desktop
     }
 
     private val route = "https://www.google.com/maps/dir/Lisbon/Sintra/Cascais/@38.76,-9.45,11z/data=!4m25!4m24" +
@@ -67,6 +69,51 @@ class ScreenshotTest {
             File(dir, "$name-device-tall.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
             scene.close()
         }
+    }
+
+    /** Job feedback: steps while running, the result note, the restart reminder and "safe to unplug". Nothing runs or writes. */
+    @Test fun renderJobStates() {
+        val dir = out ?: return
+        val dev = deviceDir?.takeIf { it.isDirectory } ?: return
+        dir.mkdirs()
+        fun AppState.call(name: String, vararg args: Any?) = AppState::class.java.declaredMethods.first { it.name == name && it.parameterCount == args.size }
+            .apply { isAccessible = true }.invoke(this, *args)
+        fun AppState.set(name: String, v: Any?) = AppState::class.java.declaredMethods.first { it.name == "set" + name.replaceFirstChar(Char::uppercase) && it.parameterCount == 1 }
+            .apply { isAccessible = true }.invoke(this, v)
+        fun shot(state: AppState, tab: Tab, name: String, w: Int = 1100, h: Int = 1500) {
+            val scene = ImageComposeScene(w, h, Density(1f)) { App(state, dark = false, startTab = tab) }
+            var t = 0L
+            repeat(12) { scene.render(t); t += 100_000_000; Thread.sleep(60) }
+            File(dir, "$name.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            scene.close()
+        }
+        val running = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply {
+            connect(LocalFs(dev))
+            set("busy", "Downloading fuel prices…"); set("busyKey", Job.FUEL)
+            call("plan", listOf("Portugal: download prices", "Spain: download prices", "Write to the TomTom"), true)
+            call("step", 1, "40%")
+            call("stepDetail", 0, "3,112 stations")
+            call("progress", 420, 1050, "areas")
+        }
+        shot(running, Tab.POIS, "job-running")
+        val done = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply {
+            connect(LocalFs(dev))
+            set("busy", "x"); set("busyKey", Job.FUEL)
+            call("plan", listOf("Portugal: download prices", "Write to the TomTom"), true)
+            call("step", 1, null)
+            say("Fuel prices installed: 3,112 stations, 3,050 with Diesel. Restart the TomTom so it finds them.")
+            call("needsRestart")
+            (steps.forEach { if (it.state != Step.State.AFTER) it.state = Step.State.DONE })
+            set("busy", null); set("busyKey", null)
+        }
+        shot(done, Tab.POIS, "job-done")
+        val ejected = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply { set("ejected", true); call("needsRestart") }
+        shot(ejected, Tab.SEND, "ejected", 412, 900)
+        val route = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply {
+            connect(LocalFs(dev)); points.addAll(parseInput(this@ScreenshotTest.route, null).points); followRoads = true
+        }
+        shot(route, Tab.SEND, "phone-send-tall", 412, 2000)
+        shot(AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)), Tab.SEND, "send-empty", 1100, 1100)
     }
 
     @Test fun renderAllScreens() {

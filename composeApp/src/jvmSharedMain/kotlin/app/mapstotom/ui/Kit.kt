@@ -133,23 +133,40 @@ fun Fact(label: String, value: String, status: Status? = null) {
 
 // ---------------------------------------------------------------- buttons by intent
 
+/**
+ * [busy]: this button started the job that is running. It shows a spinner and [busyText] ("Installing…"),
+ * and stays legible instead of greying out like the others.
+ */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true, icon: ImageVector? = null) =
-    Button(onClick, enabled = enabled, shape = Radius.control, contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.sm + Space.xxs)) {
-        if (icon != null) { Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.sm)) }
-        Text(text, style = MaterialTheme.typography.labelLarge)
+fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true, icon: ImageVector? = null,
+                  busy: Boolean = false, busyText: String? = null) {
+    val t = LocalTokens.current
+    Button(if (busy) ({}) else onClick, enabled = enabled || busy, shape = Radius.control,
+        colors = if (busy) ButtonDefaults.buttonColors(containerColor = t.actionSoft, contentColor = t.onActionSoft) else ButtonDefaults.buttonColors(),
+        contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.sm + Space.xxs)) {
+        ButtonContent(if (busy) busyText ?: text else text, icon, busy, t.onActionSoft)
     }
+}
+
+@Composable
+private fun ButtonContent(text: String, icon: ImageVector?, busy: Boolean, spinner: androidx.compose.ui.graphics.Color) {
+    when {
+        busy -> { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = spinner); Spacer(Modifier.width(Space.sm)) }
+        icon != null -> { Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.sm)) }
+    }
+    Text(text, style = MaterialTheme.typography.labelLarge)
+}
 
 /** Neutral secondary action: outline, dark text, never a coloured fill. */
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true, icon: ImageVector? = null) {
+fun SecondaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true, icon: ImageVector? = null,
+                    busy: Boolean = false, busyText: String? = null) {
     val t = LocalTokens.current
-    OutlinedButton(onClick, enabled = enabled, shape = Radius.control,
-        border = BorderStroke(1.dp, if (enabled) t.borderStrong else t.hairline),
+    OutlinedButton(if (busy) ({}) else onClick, enabled = enabled || busy, shape = Radius.control,
+        border = BorderStroke(1.dp, if (enabled || busy) t.borderStrong else t.hairline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = t.text),
         contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.sm + Space.xxs)) {
-        if (icon != null) { Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.sm)) }
-        Text(text, style = MaterialTheme.typography.labelLarge)
+        ButtonContent(if (busy) busyText ?: text else text, icon, busy, t.action)
     }
 }
 

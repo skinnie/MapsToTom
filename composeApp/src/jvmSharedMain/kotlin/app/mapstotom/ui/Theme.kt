@@ -120,7 +120,8 @@ fun MapsToTomTheme(dark: Boolean, content: @Composable () -> Unit) {
         outline = t.borderStrong, outlineVariant = t.hairline,
         error = t.danger, onError = t.onDanger, errorContainer = t.dangerSoft, onErrorContainer = t.onDangerSoft,
     )
-    androidx.compose.runtime.CompositionLocalProvider(LocalTokens provides t) {
+    // No Surface at the root, so set the default icon/text colour here, or icons are black on the dark theme.
+    androidx.compose.runtime.CompositionLocalProvider(LocalTokens provides t, androidx.compose.material3.LocalContentColor provides t.text) {
         MaterialTheme(
             colorScheme = scheme,
             typography = Type,

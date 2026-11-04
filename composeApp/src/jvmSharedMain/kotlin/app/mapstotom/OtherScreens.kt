@@ -1,6 +1,9 @@
 package app.mapstotom
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,9 +31,8 @@ fun ColumnScope.DeviceScreen(state: AppState) {
     if (d == null) { ScreenHeader("Device"); NeedDevice(state); AboutFooter(state); return }
     val idle = state.busy == null
     var confirmRestore by remember { mutableStateOf(false) }
-    val info by produceState<Triple<Long?, Boolean, Boolean>?>(null, d, state.gen) {
-        value = withContext(Dispatchers.IO) { runCatching { Triple(d.fs.freeSpace(), powerOffEnabled(d.fs), stayOnEnabled(d.fs)) }.getOrNull() }
-    }
+    val infoLoad by produceLoad(d, state.gen) { Triple(d.fs.freeSpace(), powerOffEnabled(d.fs), stayOnEnabled(d.fs)) }
+    val info = (infoLoad as? Load.Ready)?.value
 
     ScreenHeader(d.model, d.fs.displayName)
 
@@ -45,10 +47,17 @@ fun ColumnScope.DeviceScreen(state: AppState) {
         Row { TextButton(onClick = { state.refresh() }, enabled = idle, contentPadding = PaddingValues(horizontal = 0.dp, vertical = Space.sm)) { Text("Read again") } }
     }
 
-    val addons by produceState<Addons?>(null, d, state.gen) {
-        value = withContext(Dispatchers.IO) { runCatching { readAddons(d.fs, d.mapFolder, d.chip.chip) }.getOrNull() }
+    val addonsLoad by produceLoad(d, state.gen) { readAddons(d.fs, d.mapFolder, d.chip.chip) }
+    when (val l = addonsLoad) {
+        Load.Loading -> {}
+        is Load.Failed -> { Spacer(Modifier.height(Space.xxl)); LoadFailed(state, "the add-ons", l) }
+        is Load.Ready -> l.value.takeIf { it.any }?.let { AddonsSection(state, it, idle) }
     }
-    addons?.takeIf { it.any }?.let { AddonsSection(state, it, idle) }
+    JobFeedback(state, Job.DEVICE, Modifier.widthIn(max = Space.measure))
+    (infoLoad as? Load.Failed)?.let { f ->
+        Spacer(Modifier.height(Space.xxl))
+        LoadFailed(state, "the power settings", f)
+    }
 
     Spacer(Modifier.height(Space.xxl))
     Text("Power button", style = MaterialTheme.typography.headlineSmall, color = t.text)
@@ -81,9 +90,11 @@ fun ColumnScope.DeviceScreen(state: AppState) {
     Prose("Copies every file on the TomTom into a new dated folder. Back up before installing fixes.")
     Spacer(Modifier.height(Space.md))
     Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        PrimaryButton("Back up", { state.backup() }, enabled = idle, icon = Icons.Filled.Backup)
+        PrimaryButton("Back up", { state.backup() }, enabled = idle, icon = Icons.Filled.Backup,
+            busy = state.running(Job.BACKUP) && state.busy == "Backing up…", busyText = "Backing up…")
         DangerTextButton("Restore a backup", { confirmRestore = true }, enabled = idle)
     }
+    JobFeedback(state, Job.BACKUP)
 
     AboutFooter(state)
 
@@ -118,7 +129,8 @@ private fun AddonsSection(state: AppState, a: Addons, idle: Boolean) {
     Spacer(Modifier.height(Space.xxl))
     Text("Add-ons", style = MaterialTheme.typography.headlineSmall, color = t.text)
     Spacer(Modifier.height(Space.sm))
-    Prose("Each one uses some of the TomTom's memory or processor. Tap the i to see what it costs, so you can keep only what you use.")
+    Prose("Each one uses some of the TomTom's memory or processor. " +
+        (if (state.platform.isAndroid) "Tap the i" else "Point at the i") + " to see what it costs, so you can keep only what you use.")
     Spacer(Modifier.height(Space.md))
     Panel(Modifier.widthIn(max = Space.measure), padding = PaddingValues(horizontal = Space.lg, vertical = Space.xs)) {
         val rows = mutableListOf<@Composable () -> Unit>()
@@ -132,23 +144,23 @@ private fun AddonsSection(state: AppState, a: Addons, idle: Boolean) {
                         live && sc.bluetoothOff -> "Needs Bluetooth, which is off."
                         else -> "Traffic, weather and fuel prices through a phone running the car link."
                     },
-                    live, idle && !sc.hasModelId && (a.carLinkReady || live), { state.setLive(it) }, LIVE_COST)
+                    live, idle && !sc.hasModelId && (a.carLinkReady || live), { state.setLive(it) }, LIVE_COST, state.platform.isAndroid)
             }
             rows += {
                 AddonRow("Bluetooth", "Hands-free calls, and the phone link for Live services.",
-                    !sc.bluetoothOff, idle, { state.setBluetooth(it) }, BLUETOOTH_COST)
+                    !sc.bluetoothOff, idle, { state.setBluetooth(it) }, BLUETOOTH_COST, state.platform.isAndroid)
             }
         }
         val fuel = a.fuelOn.ifEmpty { a.fuelOff }
         if (fuel.isNotEmpty()) rows += {
             val f = fuel.first()
             AddonRow("Fuel prices", "${f.name}: %,d stations, %.1f MB".format(f.stations, f.bytes / 1e6),
-                a.fuelOn.isNotEmpty(), idle, { state.setFuelPrices(it) }, FUEL_COST)
+                a.fuelOn.isNotEmpty(), idle, { state.setFuelPrices(it) }, FUEL_COST, state.platform.isAndroid)
         }
         a.gpsLog?.let { on ->
-            rows += { AddonRow("GPS engine log", "Writes gl/log/gltt.txt, for troubleshooting.", on, idle, { state.setGlttDebug(it) }, GPS_LOG_COST) }
+            rows += { AddonRow("GPS engine log", "Writes gl/log/gltt.txt, for troubleshooting.", on, idle, { state.setGlttDebug(it) }, GPS_LOG_COST, state.platform.isAndroid) }
         }
-        a.swapBytes?.let { b -> rows += { AddonRow("Swap file", "%.0f MB on the card".format(b / 1048576.0), false, false, null, SWAP_COST) } }
+        a.swapBytes?.let { b -> rows += { AddonRow("Swap file", "%.0f MB on the card".format(b / 1048576.0), false, false, null, SWAP_COST, state.platform.isAndroid) } }
         rows.forEachIndexed { i, row -> if (i > 0) Hairline(); row() }
     }
     if (sc != null) {
@@ -162,21 +174,37 @@ private fun AddonsSection(state: AppState, a: Addons, idle: Boolean) {
     }
 }
 
-/** One add-on: name, what it does, its switch (null: information only), and an i that opens what it costs. */
+/**
+ * One add-on: name, what it does, its switch (null: information only), and an i for what it costs.
+ * Desktop: the cost shows in a hint on pointing (or a click). Touch: a tap opens it under the row.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddonRow(title: String, detail: String, on: Boolean, enabled: Boolean, onChange: ((Boolean) -> Unit)?, cost: String) {
+private fun AddonRow(title: String, detail: String, on: Boolean, enabled: Boolean, onChange: ((Boolean) -> Unit)?, cost: String, touch: Boolean) {
     val t = LocalTokens.current
     var open by remember(title) { mutableStateOf(false) }
+    val tip = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
     Column {
         Row(Modifier.fillMaxWidth().padding(vertical = Space.sm), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, color = t.text)
                 Text(detail, style = MaterialTheme.typography.bodySmall, color = t.textMuted)
             }
-            IconButton(onClick = { open = !open }) {
-                Icon(if (open) Icons.Filled.Info else Icons.Outlined.Info, contentDescription = "What $title costs",
-                    tint = if (open) t.action else t.textMuted)
+            val button = @Composable {
+                IconButton(onClick = { if (touch) open = !open else scope.launch { tip.show() } }) {
+                    Icon(if (open || tip.isVisible) Icons.Filled.Info else Icons.Outlined.Info, contentDescription = "What $title costs",
+                        tint = if (open || tip.isVisible) t.action else t.textMuted)
+                }
             }
+            if (touch) button() else TooltipBox(
+                positionProvider = TooltipDefaults.rememberRichTooltipPositionProvider(),
+                tooltip = {
+                    RichTooltip(title = { Text("What $title costs") }, colors = TooltipDefaults.richTooltipColors(
+                        containerColor = t.surface, contentColor = t.text, titleContentColor = t.text),
+                        modifier = Modifier.border(BorderStroke(1.dp, t.hairline), Radius.control)) { Text(cost) }
+                },
+                state = tip, content = button)
             if (onChange != null) Switch(on, onChange, enabled = enabled)
             else Spacer(Modifier.width(52.dp)) // a switch's width, so the i stays in line with the rows above
         }

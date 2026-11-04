@@ -1,6 +1,9 @@
 package app.mapstotom
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -89,19 +92,22 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
     }
 }
 
-/** Which TomTom is in use, kept quiet: one line, one action. */
+/** Which TomTom is in use, kept quiet: a connection chip, one line, one action. */
 @Composable
 private fun DeviceStrip(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
     val t = LocalTokens.current
     val d = state.device
+    val looking = state.busyKey == Job.DETECT
     Column {
-        Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.md), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (d != null) Icons.Filled.CheckCircle else Icons.Filled.UsbOff, null,
-                tint = if (d != null) t.ok else t.textMuted, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(Space.sm))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val narrow = maxWidth < 480.dp
+        Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.sm), verticalAlignment = Alignment.CenterVertically) {
+            // On a phone the chip shrinks to its icon when connected, so the TomTom's name has room.
+            ConnectionChip(if (looking) Connection.LOOKING else if (d != null) Connection.ON else Connection.OFF, iconOnly = narrow && d != null && !looking)
+            Spacer(Modifier.width(Space.md))
             Text(
                 if (d != null) d.model + "  ·  " + listOfNotNull(d.navcore?.let { "NavCore $it" }, d.mapFolder).joinToString("  ·  ")
-                else "No TomTom connected",
+                else "",
                 Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                 color = if (d != null) t.text else t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
@@ -111,20 +117,62 @@ private fun DeviceStrip(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
                 TextButton(onClick = { state.chooseDevice() }, enabled = state.busy == null) { Text(if (d == null) "Choose drive" else "Change") }
             }
         }
+        }
         Hairline()
+        if (state.ejected && d == null) Banner(gutter) {
+            StatusNote(Status.OK, "Safe to unplug the TomTom." +
+                if (state.restartPending) " Then restart it to use the changes: hold the power button about 15 seconds." else "",
+                icon = Icons.Filled.Eject)
+        } else if (state.restartPending) Banner(gutter) {
+            StatusNote(Status.WARN, "Restart the TomTom to use the changes: hold the power button about 15 seconds, until it starts again. " +
+                "Waking it from standby is not enough.", icon = Icons.Filled.PowerSettingsNew) {
+                TextButton(onClick = { state.restartDone() }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Done, it restarted") }
+            }
+        }
     }
 }
 
-/** Result of the last action, or what is running now. */
+@Composable
+private fun Banner(gutter: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.sm)) { content() }
+    Hairline()
+}
+
+private enum class Connection { ON, LOOKING, OFF }
+
+/** "Connected" / "Looking…" / "Not connected" as a pill: icon plus words, never colour alone. */
+@Composable
+private fun ConnectionChip(c: Connection, iconOnly: Boolean = false) {
+    val t = LocalTokens.current
+    val (bg, fg) = when (c) { Connection.ON -> t.actionSoft to t.onActionSoft; else -> t.sunken to t.textMuted }
+    Row(Modifier.background(bg, Radius.pill).padding(horizontal = if (iconOnly) Space.xs + Space.xxs else Space.md, vertical = Space.xs)
+        .semantics(mergeDescendants = true) { if (iconOnly) contentDescription = "Connected" },
+        verticalAlignment = Alignment.CenterVertically) {
+        when (c) {
+            Connection.ON -> Icon(Icons.Filled.CheckCircle, null, tint = t.ok, modifier = Modifier.size(16.dp))
+            Connection.LOOKING -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = t.action)
+            Connection.OFF -> Icon(Icons.Filled.UsbOff, null, tint = t.textMuted, modifier = Modifier.size(16.dp))
+        }
+        if (iconOnly) return@Row
+        Spacer(Modifier.width(Space.xs + Space.xxs))
+        Text(when (c) { Connection.ON -> "Connected"; Connection.LOOKING -> "Looking…"; Connection.OFF -> "Not connected" },
+            style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1)
+    }
+}
+
+/** Result of the last action, or what is running now, with numbers and the time left. */
 @Composable
 private fun StatusLine(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
     val t = LocalTokens.current
+    // Re-read the clock now and then, so "about 3 min left" counts down.
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(state.progress != null) { while (state.progress != null) { kotlinx.coroutines.delay(2000); tick++ } }
     Column(Modifier.background(t.surface)) {
         Hairline()
-        state.progress?.let { (i, n) ->
-            LinearProgressIndicator(progress = { if (n == 0) 0f else i / n.toFloat() }, Modifier.fillMaxWidth(),
-                color = t.action, trackColor = t.sunken)
-        }
+        val p = state.progress
+        if (p != null) LinearProgressIndicator(progress = { if (p.second == 0) 0f else p.first / p.second.toFloat() }, Modifier.fillMaxWidth(),
+            color = t.action, trackColor = t.sunken, drawStopIndicator = {})
+        else if (state.busy != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = t.action, trackColor = t.sunken)
         Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.sm), verticalAlignment = Alignment.CenterVertically) {
             when {
                 state.busy != null -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = t.action)
@@ -132,8 +180,63 @@ private fun StatusLine(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
                 else -> Icon(Icons.Filled.Info, null, tint = t.textMuted, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.width(Space.sm))
-            Text(state.busy ?: state.status, style = MaterialTheme.typography.bodySmall,
-                color = if (state.statusIsError && state.busy == null) t.danger else t.textMuted)
+            Text(state.busy ?: state.status, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                color = if (state.statusIsError && state.busy == null) t.danger else t.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val right = if (state.busy != null && tick >= 0) p?.let { (i, n) ->
+                listOfNotNull("%,d of %,d %s".format(i, n, state.progressUnit).trim(), state.timeLeft()).joinToString("  ·  ")
+            } else state.statusTime?.let { clock(it) }
+            if (right != null) {
+                Spacer(Modifier.width(Space.md))
+                Text(right, style = MaterialTheme.typography.bodySmall, color = t.textMuted, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** The steps and the result of the job started in this section, shown under its button. */
+@Composable
+fun JobFeedback(state: AppState, key: String, modifier: Modifier = Modifier) {
+    val steps = state.steps.takeIf { state.stepsKey == key && it.isNotEmpty() }
+    val note = state.note?.takeIf { it.key == key && state.busyKey != key }
+    if (steps == null && note == null) return
+    Column(modifier.padding(top = Space.md), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+        if (steps != null) StepList(steps)
+        if (note != null) StatusNote(if (note.error) Status.BAD else Status.OK, note.text, time = note.time,
+            onClose = { state.dismissNote(key) })
+    }
+}
+
+/** True while the job of this section runs (for its button's spinner). */
+fun AppState.running(key: String) = busyKey == key
+
+/**
+ * Desktop: a dashed area around a section's open button that takes files dropped from the file manager.
+ * Android has no dragging from a file manager, so there it is just the button.
+ */
+@Composable
+fun DropZone(state: AppState, hint: String, content: @Composable RowScope.() -> Unit) {
+    val t = LocalTokens.current
+    var over by remember { mutableStateOf(false) }
+    val drop = state.platform.fileDrop({ state.openDropped(it) }, { over = it })
+    if (drop == null) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), content = content); return }
+    val edge = if (over) t.action else t.borderStrong
+    @OptIn(ExperimentalLayoutApi::class)
+    FlowRow(
+        drop.fillMaxWidth()
+            .background(if (over) t.actionSoft else t.page, Radius.panel)
+            .drawBehind {
+                drawRoundRect(edge, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx(),
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()))
+            }
+            .padding(horizontal = Space.lg, vertical = Space.md),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
+        Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), content = content)
+        Row(Modifier.align(Alignment.CenterVertically).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.FileDownload, null, tint = t.textMuted, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(Space.xs))
+            Text(if (over) "Drop to open" else hint, style = MaterialTheme.typography.bodySmall, color = if (over) t.onActionSoft else t.textMuted)
         }
     }
 }

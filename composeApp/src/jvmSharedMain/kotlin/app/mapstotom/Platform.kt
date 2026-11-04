@@ -34,6 +34,12 @@ interface Platform {
     fun scheduleQuickFixReminder(at: java.time.Instant?) {}
     /** In-car link (phone plays the TomTom's Bluetooth phone). Android only. */
     val carLink: app.mapstotom.link.CarLinkControl? get() = null
+    /**
+     * Desktop: a modifier that takes files dropped from the file manager; [onHover] says when a drag is over it.
+     * Null where files can't be dropped (Android).
+     */
+    @androidx.compose.runtime.Composable
+    fun fileDrop(onFiles: (List<java.io.File>) -> Unit, onHover: (Boolean) -> Unit): androidx.compose.ui.Modifier? = null
     /** Private app storage (Android: files dir); the car link keeps installed fuel sets and logins there. */
     val dataDir: java.io.File? get() = null
 }
