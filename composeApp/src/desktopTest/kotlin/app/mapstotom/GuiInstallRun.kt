@@ -85,5 +85,6 @@ class ApplyNamesRun {
         val lang = app.mapstotom.core.tomtomLanguage(app.mapstotom.core.readBif(fs))
         app.mapstotom.core.renameTranslatedCategories(fs, map, lang).forEach { println("APPLY: renamed $it") }
         println("APPLY: old start-up rename removed: ${app.mapstotom.core.removeBootRename(fs)}")
+        app.mapstotom.core.moveNamedIntoTomTomCategories(fs, map).forEach { println("APPLY: moved $it") }
     }
 }

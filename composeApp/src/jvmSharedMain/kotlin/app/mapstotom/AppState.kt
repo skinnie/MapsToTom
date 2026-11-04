@@ -162,10 +162,13 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         // The TomTom doesn't translate added POI files, so ours follow its language: rename them if it changed.
         val renamed = d.mapFolder?.let { m -> runCatching { renameTranslatedCategories(fs, m, d.language) }.getOrNull() }.orEmpty()
         val unhooked = runCatching { removeBootRename(fs) }.getOrNull() == true
+        // Places of a kind the TomTom has (pools, campsites…) now go in its own categories, which it translates itself.
+        val moved = d.mapFolder?.let { m -> runCatching { moveNamedIntoTomTomCategories(fs, m) }.getOrNull() }.orEmpty()
         gen++
-        say("Connected: ${d.model}." + if (renamed.isEmpty()) "" else
-            " Renamed ${renamed.size} OpenStreetMap ${if (renamed.size == 1) "category" else "categories"} to the TomTom's language (${bif["UserLanguage"]}).")
-        if (renamed.isNotEmpty()) needsRestart()
+        say("Connected: ${d.model}." + (if (renamed.isEmpty()) "" else
+            " Renamed ${renamed.size} OpenStreetMap ${if (renamed.size == 1) "category" else "categories"} to the TomTom's language (${bif["UserLanguage"]}).") +
+            (if (moved.isEmpty()) "" else " Moved ${moved.size} POI ${if (moved.size == 1) "category" else "categories"} into the TomTom's own categories, so it names them in its language."))
+        if (renamed.isNotEmpty() || moved.isNotEmpty()) needsRestart()
         if (unhooked) { needsRestart(); say((note?.text?.let { "$it " } ?: "") + "Removed the old start-up rename from the TomTom (it could stop the TomTom from starting).") }
         if (checkGps) checkQuickFix(d)
     }
@@ -587,10 +590,20 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             } else null
             val pts = r?.kept ?: all
             r?.let { skipped += it.skipped; unchecked += it.unchecked }
-            val sound = if (t.warns) Res.readBytes("files/poi/warning.ogg") else null
-            writePoiCategory(d.fs, map, t.categoryName(d.language), pts, categoryIconBmp(t.rgb, t.glyph), sound)
-            done += if (r == null || r.skipped.isEmpty()) "${t.label} ${pts.size}" else "${t.label} ${pts.size} (${r.skipped.size} already on the map)"
-            stepDetail(i, "%,d added".format(pts.size) + if (r != null && r.skipped.isNotEmpty()) ", %,d already on the map".format(r.skipped.size) else "")
+            val onMap = if (r != null && r.skipped.isNotEmpty()) ", %,d already on the map".format(r.skipped.size) else ""
+            val cat = t.tomtomCategory
+            if (cat != null) {
+                val ci = installIntoTomTomCategory(d.fs, map, cat, t.source, pts)
+                removeNamedCategory(d.fs, map, t.translated)
+                val near = categoryNearNote(ci)
+                done += "${t.label} ${ci.added}" + (onMap + near).takeIf { it.isNotEmpty() }?.let { " (${it.removePrefix(", ")})" }.orEmpty()
+                stepDetail(i, "%,d added to the TomTom's own category".format(ci.added) + onMap + near)
+            } else {
+                val sound = if (t.warns) Res.readBytes("files/poi/warning.ogg") else null
+                writePoiCategory(d.fs, map, t.categoryName(d.language), pts, categoryIconBmp(t.rgb, t.glyph), sound)
+                done += "${t.label} ${pts.size}" + onMap.takeIf { it.isNotEmpty() }?.let { " (${it.removePrefix(", ")})" }.orEmpty()
+                stepDetail(i, "%,d added".format(pts.size) + onMap)
+            }
         }
         osmSkipped = skipped
         gen++
@@ -716,6 +729,13 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             progress(i, selected.size, "categories")
             val pts = if (keep == null) c.points else c.points.filter(keep)
             if (pts.isEmpty()) return@forEachIndexed
+            val cat = gpiTomtomCategory(gpiFile?.title, c.name)
+            if (cat != null) {
+                val ci = installIntoTomTomCategory(d.fs, map, cat, gpiSource(gpiFile?.title, c.name), pts)
+                gpiTranslated(gpiFile?.title, c.name)?.let { removeNamedCategory(d.fs, map, it) }
+                done += "${c.name} ${ci.added}" + categoryNearNote(ci).takeIf { it.isNotEmpty() }?.let { " (${it.removePrefix(", ")})" }.orEmpty()
+                return@forEachIndexed
+            }
             writePoiCategory(d.fs, map, gpiCategoryName(c), pts, gpiIconBmp(c.icon) ?: categoryIconBmp(0x6B4E2E, 'P'))
             done += "${c.name} ${pts.size}"
         }
@@ -733,6 +753,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     fun deletePoiCategory(c: PoiCategory) = work("Deleting…", Job.ON_DEVICE) {
         val fs = requireDevice().fs
         fs.delete(c.ov2); c.bmp?.let { fs.delete(it) }; c.ogg?.let { fs.delete(it) }; c.fpf?.let { fs.delete(it) }
+        fs.delete(listFile(c.ov2))
         gen++
         say("Deleted POI category \"${c.name}\".")
     }

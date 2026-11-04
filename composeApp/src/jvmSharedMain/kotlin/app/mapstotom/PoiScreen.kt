@@ -397,7 +397,7 @@ private fun OnDevice(state: AppState, wideHint: Boolean, onDelete: (PoiCategory)
             Row(Modifier.fillMaxWidth().clickable(enabled = c.editable) { open = if (open == c.ov2) null else c.ov2 }.padding(vertical = Space.xs),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(c.name, style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(tomtomCategoryLabel(c.name) ?: c.name, style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val bits = listOfNotNull(
                         when {
                             c.fpf != null -> "fuel prices, ${c.count} stations"
