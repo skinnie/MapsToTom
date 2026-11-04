@@ -75,7 +75,7 @@ class GuiInstallRun {
 
 /**
  * What the app does on connect, for a card on the PC: names the app's categories in the TomTom's language and
- * adds the start-up rename. WRITES TO THE CARD. -Pm2t.applyCard=<card root>.
+ * removes the old start-up rename. WRITES TO THE CARD. -Pm2t.applyCard=<card root>.
  */
 class ApplyNamesRun {
     @Test fun run() {
@@ -84,6 +84,6 @@ class ApplyNamesRun {
         val map = app.mapstotom.core.findMapFolder(fs) ?: error("no map folder")
         val lang = app.mapstotom.core.tomtomLanguage(app.mapstotom.core.readBif(fs))
         app.mapstotom.core.renameTranslatedCategories(fs, map, lang).forEach { println("APPLY: renamed $it") }
-        println("APPLY: start-up step added: ${app.mapstotom.core.installBootRename(fs, map)}")
+        println("APPLY: old start-up rename removed: ${app.mapstotom.core.removeBootRename(fs)}")
     }
 }

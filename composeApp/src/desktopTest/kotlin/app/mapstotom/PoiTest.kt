@@ -59,44 +59,18 @@ class BootRenameTest {
         }
     }
 
-    @Test fun hookIsAddedOnceAndKeepsTheOldTtn() {
-        val (dir, fs) = card("Piscinas (OSM).ov2")
-        assertTrue(installBootRename(fs, "Map"))
-        assertFalse(installBootRename(fs, "Map"))
-        val ttn = fs.read("ttn")!!.toString(Charsets.UTF_8)
-        assertTrue(ttn.startsWith("#! /bin/sh\n"))
-        assertEquals(1, Regex("poilang.sh ]").findAll(ttn).count())
-        assertTrue(ttn.indexOf("poilang") < ttn.indexOf("resetgps"))
-        assertEquals("#! /bin/sh\n\n/mnt/sdcard/fixdate/resetgps &\n(/bin/ttn &)\n", fs.read("mapstotom/ttn.before-mapstotom")!!.toString(Charsets.UTF_8))
-        assertEquals("Português\r\n", fs.read("mapstotom/lastlang")!!.toString(Charsets.UTF_8))
-        dir.deleteRecursively()
-    }
-
-    @Test fun noHookOnAStockTomTom() {
-        val (dir, fs) = card(); fs.write("ttn", byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
-        assertFalse(installBootRename(fs, "Map")); assertFalse(fs.exists("mapstotom/poilang.sh"))
-        dir.deleteRecursively()
-    }
-
-    /** Runs the start-up script with the PC's busybox sh, as the TomTom would. */
-    @Test fun scriptRenamesOnlyWhenTheLanguageChanged() {
-        val sh = listOf("/usr/bin/busybox", "/bin/busybox").firstOrNull { java.io.File(it).canExecute() } ?: return
-        val (dir, fs) = card("Swimming pools (OSM).ov2", "Swimming pools (OSM).bmp", "iOverlander Wild Camping.ov2", "Praias.pt.ov2")
-        fs.write("mapstotom/poilang.sh", poiLangScript("Map").toByteArray())
-        fun run(): Long {
-            val t0 = System.nanoTime()
-            val p = ProcessBuilder(sh, "sh", "${dir}/mapstotom/poilang.sh").also { it.environment()["R"] = dir.path }.redirectErrorStream(true).start()
-            val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
-            assertEquals(0, p.waitFor(), out)
-            return (System.nanoTime() - t0) / 1_000_000
-        }
-        run()
-        assertEquals(listOf("Campismo selvagem (iOverlander).ov2", "Piscinas (OSM).bmp", "Piscinas (OSM).ov2", "Praias.pt.ov2"), fs.list("Map"))
-        val unchanged = run()
-        println("start-up script with no language change: $unchanged ms")
-        fs.write("ttgo.bif", "[TomTomGo]\r\nUserLanguage=English UK\r\n".toByteArray())
-        run()
-        assertEquals(listOf("Praias.pt.ov2", "Swimming pools (OSM).bmp", "Swimming pools (OSM).ov2", "Wild Camping (iOverlander).ov2"), fs.list("Map"))
+    /** The ttn an earlier version left on the card: the hook goes, and ttn is byte for byte as before. */
+    @Test fun oldHookIsRemoved() {
+        val (dir, fs) = card()
+        val before = fs.read("ttn")!!
+        fs.write("ttn", ("#! /bin/sh\n\n# MapsToTom: POI category names follow the menu language (delete mapstotom/poilang.sh to stop)\n" +
+            "[ -f /mnt/sdcard/mapstotom/poilang.sh ] && sh /mnt/sdcard/mapstotom/poilang.sh\n" +
+            "\n/mnt/sdcard/fixdate/resetgps &\n(/bin/ttn &)\n").toByteArray())
+        fs.write("mapstotom/poilang.sh", "#!/bin/sh\n".toByteArray())
+        assertTrue(removeBootRename(fs))
+        assertContentEquals(before, fs.read("ttn")!!)
+        assertFalse(fs.exists("mapstotom/poilang.sh"))
+        assertFalse(removeBootRename(fs))
         dir.deleteRecursively()
     }
 }

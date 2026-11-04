@@ -6,8 +6,8 @@ import java.text.Normalizer
  * POI category names in the TomTom's own language. TomTom's built-in categories are stored in the map by number
  * and named from its language data, so they follow a language change by themselves. An added category's name is
  * just its file name, so the app names its own categories in the language the TomTom reports (UserLanguage in
- * ttgo.bif), renames them when it connects, and leaves a small start-up script on the card that renames them on
- * the TomTom itself after a language change (see [poiLangScript]).
+ * ttgo.bif) and renames them when it connects. Categories the TomTom has itself go into its own PA files instead
+ * (see TomTomCategories.kt), so the TomTom names those.
  */
 
 /** Languages with translated names, in the order of every name list below; anything else gets English. */
@@ -124,74 +124,26 @@ fun renameTranslatedCategories(fs: DeviceFs, mapDir: String, lang: String): List
     return done
 }
 
-// ------------------------------------------------------------------ on the TomTom: rename at start
+// ------------------------------------------------------------------ old start-up rename (removed)
 
-/** Where the start-up script and its note of the last language live on the card. */
+/** Where an earlier version put its start-up rename on the card. */
 const val BOOT_DIR = "mapstotom"
 const val BOOT_SCRIPT = "$BOOT_DIR/poilang.sh"
-const val BOOT_LAST_LANG = "$BOOT_DIR/lastlang"
 private const val HOOK = "[ -f /mnt/sdcard/$BOOT_SCRIPT ] && sh /mnt/sdcard/$BOOT_SCRIPT"
 
 /**
- * A shell script for the TomTom's start, run from the card's ttn before the navigation program: when the menu
- * language differs from the one it saw last time, it renames the app's categories in [mapDir]. Otherwise it reads
- * two small files and stops. Only shell built-ins and mv, so it costs nothing measurable on a normal start.
+ * Takes the start-up rename off the card again. On a TomTom ONE (v4, NavCore 9.541) the script hung after its
+ * first rename, so the TomTom never finished starting; names are now only changed by the app on connect.
+ * Returns true when the hook was removed.
  */
-fun poiLangScript(mapDir: String): String {
-    val cases = LANGUAGE_PREFIXES.entries.joinToString(" ") { (lang, p) ->
-        p.joinToString("|") { "$it*" } + ") n=${POI_LANGUAGES.indexOf(lang) + 1};;"
-    }
-    val lines = TRANSLATED_CATEGORIES.joinToString("\n") { c ->
-        "t " + (POI_LANGUAGES.map { c.nameIn(it) } + c.older).joinToString(" ") { "\"$it\"" }
-    }
-    return """
-        |#!/bin/sh
-        |# MapsToTom: names this app's POI categories in the TomTom's menu language. Run at start by the card's ttn.
-        |# Does nothing unless the language changed since the last start. Delete this file to stop it.
-        |R=${'$'}{R:-/mnt/sdcard}
-        |L=
-        |while IFS='=' read -r k v; do [ "${'$'}k" = UserLanguage ] && L=${'$'}v && break; done < "${'$'}R/ttgo.bif"
-        |P=
-        |[ -f "${'$'}R/$BOOT_LAST_LANG" ] && read -r P < "${'$'}R/$BOOT_LAST_LANG"
-        |[ "${'$'}L" = "${'$'}P" ] && exit 0
-        |case "${'$'}L" in $cases *) n=1;; esac
-        |cd "${'$'}R/$mapDir" || exit 0
-        |# t <name in each language: en pt es fr de it nl> [older names]
-        |t() {
-        |  eval "new=\"\${'$'}{${'$'}n}\""
-        |  for o; do
-        |    [ "${'$'}o" = "${'$'}new" ] && continue
-        |    [ -f "${'$'}o.ov2" ] || continue
-        |    [ -f "${'$'}new.ov2" ] && continue
-        |    for e in ov2 bmp ogg; do [ -f "${'$'}o.${'$'}e" ] && mv "${'$'}o.${'$'}e" "${'$'}new.${'$'}e"; done
-        |  done
-        |}
-        |$lines
-        |echo "${'$'}L" > "${'$'}R/$BOOT_LAST_LANG"
-        |""".trimMargin()
-}
-
-/**
- * Puts the start-up rename on a TomTom whose card runs its own ttn script (a modded system): writes the script
- * and the current language, and adds one line to ttn the first time, keeping ttn's old copy next to the script.
- * Returns true when the line was added now; false when it was already there or the card has no ttn script.
- */
-fun installBootRename(fs: DeviceFs, mapDir: String): Boolean {
+fun removeBootRename(fs: DeviceFs): Boolean {
     val ttn = fs.read("ttn")?.toString(Charsets.UTF_8) ?: return false
-    if (!ttn.startsWith("#!")) return false
-    // The language exactly as the script reads it (a \r at the end included), so it doesn't rename again.
-    val userLanguage = fs.read("ttgo.bif")?.toString(Charsets.UTF_8)?.split('\n')
-        ?.firstOrNull { it.startsWith("UserLanguage=") }?.substringAfter('=') ?: ""
-    val script = poiLangScript(mapDir).toByteArray()
-    if (!(fs.read(BOOT_SCRIPT)?.contentEquals(script) ?: false)) { fs.mkdirs(BOOT_DIR); fs.write(BOOT_SCRIPT, script) }
-    fs.write(BOOT_LAST_LANG, "$userLanguage\n".toByteArray())
-    if (HOOK in ttn) return false
-    if (!fs.exists("$BOOT_DIR/ttn.before-mapstotom")) fs.write("$BOOT_DIR/ttn.before-mapstotom", ttn.toByteArray())
-    // Right after the first line (#!/bin/sh), so it runs before the navigation program starts.
-    val eol = if ("\r\n" in ttn) "\r\n" else "\n"
-    val first = ttn.substringBefore('\n') + "\n"
-    val added = first + "$eol# MapsToTom: POI category names follow the menu language (delete $BOOT_SCRIPT to stop)$eol$HOOK$eol" + ttn.substring(first.length)
-    fs.write("ttn", added.toByteArray())
+    if (fs.exists(BOOT_SCRIPT)) fs.delete(BOOT_SCRIPT)
+    if (HOOK !in ttn) return false
+    val kept = ttn.split('\n').filterNot { HOOK in it || it.trimStart().startsWith("# MapsToTom: POI category names") }
+    // The added lines were followed by one empty line; drop it too so ttn is as it was.
+    val text = kept.joinToString("\n").replaceFirst(Regex("^(#![^\n]*\n)\r?\n"), "$1")
+    fs.write("ttn", text.toByteArray())
     return true
 }
 

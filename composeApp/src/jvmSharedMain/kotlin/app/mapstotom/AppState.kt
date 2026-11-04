@@ -161,12 +161,12 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         if (osmCountries.isBlank()) osmCountries = countriesForMap(d.mapFolder).joinToString(", ")
         // The TomTom doesn't translate added POI files, so ours follow its language: rename them if it changed.
         val renamed = d.mapFolder?.let { m -> runCatching { renameTranslatedCategories(fs, m, d.language) }.getOrNull() }.orEmpty()
-        val hooked = d.mapFolder?.let { m -> runCatching { hasTranslatedCategories(fs, m) && installBootRename(fs, m) }.getOrNull() } == true
+        val unhooked = runCatching { removeBootRename(fs) }.getOrNull() == true
         gen++
         say("Connected: ${d.model}." + if (renamed.isEmpty()) "" else
             " Renamed ${renamed.size} OpenStreetMap ${if (renamed.size == 1) "category" else "categories"} to the TomTom's language (${bif["UserLanguage"]}).")
         if (renamed.isNotEmpty()) needsRestart()
-        if (hooked) say((note?.text?.let { "$it " } ?: "") + "Added a start-up step to the TomTom so these names follow its menu language by themselves.")
+        if (unhooked) { needsRestart(); say((note?.text?.let { "$it " } ?: "") + "Removed the old start-up rename from the TomTom (it could stop the TomTom from starting).") }
         if (checkGps) checkQuickFix(d)
     }
 
@@ -593,7 +593,6 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             stepDetail(i, "%,d added".format(pts.size) + if (r != null && r.skipped.isNotEmpty()) ", %,d already on the map".format(r.skipped.size) else "")
         }
         osmSkipped = skipped
-        runCatching { installBootRename(d.fs, map) }
         gen++
         val later = if (unchecked > 0) " $unchecked places couldn't be compared today (TomTom's free daily limit); they were added anyway, so install again tomorrow to drop any duplicates." else ""
         say("Installed from OpenStreetMap: ${done.joinToString(", ")}.$later On the TomTom: Navigate to → Point of Interest.")
@@ -721,7 +720,6 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             done += "${c.name} ${pts.size}"
         }
         progress = null
-        if (done.isNotEmpty() && gpiTranslated(gpiFile?.title, selected.first().name) != null) runCatching { installBootRename(d.fs, map) }
         gen++
         say(if (done.isEmpty()) "Nothing to install: no places in the chosen countries." else "Installed: ${done.joinToString(", ")}.", done.isEmpty())
     }
