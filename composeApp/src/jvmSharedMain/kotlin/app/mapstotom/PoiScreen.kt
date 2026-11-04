@@ -154,8 +154,12 @@ private fun OsmSection(state: AppState) {
         }
     }
     Spacer(Modifier.height(Space.md))
+    val countryProblem = app.mapstotom.core.countriesProblem(state.osmCountries)
     OutlinedTextField(state.osmCountries, { state.osmCountries = it }, Modifier.widthIn(max = 360.dp).fillMaxWidth(),
-        label = { Text("Countries") }, supportingText = { Text("2-letter codes, from your map: PT, ES") }, singleLine = true)
+        label = { Text("Countries") }, isError = countryProblem != null, singleLine = true,
+        trailingIcon = if (state.osmCountries.isEmpty()) null else ({
+            IconButton(onClick = { state.osmCountries = "" }) { Icon(Icons.Filled.Close, "Clear countries") } }),
+        supportingText = { Text(countryProblem ?: "2-letter codes separated by commas, like PT, ES") })
     val cams = OsmPoiType.SPEED_CAMERA in chosen
     val premium = state.device?.let { d -> d.mapFolder?.let { m -> d.fs.list(m).any { it.startsWith("Safety_Cam", true) } } } == true
     if (cams && premium) {
@@ -171,7 +175,7 @@ private fun OsmSection(state: AppState) {
     SkipKnownControls(state, idle)
     Spacer(Modifier.height(Space.md))
     PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installOsm(chosen.toList()) },
-        enabled = idle && state.device != null && chosen.isNotEmpty(), icon = Icons.Filled.Download,
+        enabled = idle && state.device != null && chosen.isNotEmpty() && countryProblem == null, icon = Icons.Filled.Download,
         busy = state.running(Job.OSM), busyText = "Installing…")
     JobFeedback(state, Job.OSM)
     Spacer(Modifier.height(Space.xs))

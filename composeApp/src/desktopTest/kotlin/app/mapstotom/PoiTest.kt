@@ -9,6 +9,17 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.*
 
+class CountriesTest {
+    @Test fun parsesCodes() = assertEquals(listOf("PT", "ES"), parseCountries(" pt, ES;es "))
+    @Test fun namesTypos() {
+        val e = assertFailsWith<IllegalArgumentException> { parseCountries("PTES, AD, GI") }
+        assertTrue("PTES" in e.message!!)
+        assertNotNull(countriesProblem("PT, XX"))
+        assertNotNull(countriesProblem(""))
+        assertNull(countriesProblem("PT, ES, AD, GI"))
+    }
+}
+
 class Ov2Test {
     private fun ov2(vararg p: Point) = ByteArrayOutputStream().apply { p.forEach { write(ov2Record(it)) } }.toByteArray()
 

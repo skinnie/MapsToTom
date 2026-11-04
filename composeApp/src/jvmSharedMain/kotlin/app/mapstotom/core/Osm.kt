@@ -51,6 +51,23 @@ fun countriesForMap(map: String?): List<String> {
     }
 }
 
+private val ISO_COUNTRIES = java.util.Locale.getISOCountries().toSet()
+
+/**
+ * "PT, ES" → [PT, ES]. Anything that isn't a 2-letter country code is an error that names it,
+ * so a typo like "PTES" isn't dropped without a word.
+ */
+fun parseCountries(text: String): List<String> {
+    val parts = text.split(',', ' ', ';').map { it.trim().uppercase() }.filter { it.isNotEmpty() }
+    val bad = parts.filterNot { it.length == 2 && it in ISO_COUNTRIES }
+    require(bad.isEmpty()) { "Not a country code: ${bad.joinToString()}. Use 2-letter codes separated by commas, like PT, ES." }
+    require(parts.isNotEmpty()) { "Choose at least one country (2-letter code, like PT)" }
+    return parts.distinct()
+}
+
+/** What's wrong with the countries typed, or null when they're fine. */
+fun countriesProblem(text: String): String? = runCatching { parseCountries(text) }.exceptionOrNull()?.message
+
 /** Public Overpass servers, tried in order: they are often busy, so a busy one is skipped. */
 private val OVERPASS = listOf(
     "https://overpass-api.de/api/interpreter",

@@ -1,0 +1,49 @@
+appId: app.mapstotom
+---
+# Installs one OpenStreetMap category (public swimming pools, Portugal only) on the connected TomTom.
+# The Install button counts the ticked types, so the flow checks it after each tap: "Install" (none), then "Install 1".
+- launchApp
+- waitForAnimationToEnd
+- tapOn: "POIs"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element: "Fuel stations"
+    direction: DOWN
+    centerElement: true
+- waitForAnimationToEnd
+- tapOn: "Fuel stations"
+- scrollUntilVisible:
+    element: "Install"
+    direction: DOWN
+- scrollUntilVisible:
+    element: "Swimming pools \\(public\\)"
+    direction: UP
+    centerElement: true
+- waitForAnimationToEnd
+- tapOn: "Swimming pools \\(public\\)"
+- scrollUntilVisible:
+    element: "Countries"
+    direction: DOWN
+    centerElement: true
+- waitForAnimationToEnd
+- tapOn: "Clear countries"
+- tapOn: "Countries"
+- inputText: "PT"
+- hideKeyboard
+- takeScreenshot: p1-chosen
+- scrollUntilVisible:
+    element: "Install 1"
+    direction: DOWN
+- assertVisible:
+    text: "PT"
+- takeScreenshot: p2-before-install
+- tapOn: "Install 1"
+- takeScreenshot: p3-running
+- extendedWaitUntil:
+    visible: "Installed from OpenStreetMap.*"
+    timeout: 900000
+- takeScreenshot: p4-done
+- scrollUntilVisible:
+    element: "OSM Swimming pools"
+    direction: UP
+- takeScreenshot: p5-on-the-tomtom

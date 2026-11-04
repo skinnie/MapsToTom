@@ -563,7 +563,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     fun installOsm(types: List<OsmPoiType>) = work("Downloading from OpenStreetMap…", Job.OSM) {
         val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
-        val cc = osmCountries.split(',', ' ', ';').filter { it.isNotBlank() }
+        val cc = app.mapstotom.core.parseCountries(osmCountries)
         val key = tomtomKey
         val overlap = if (osmSkipKnown && key != null)
             MapOverlap(key, net, OverlapCache(platform.dataDir?.let { java.io.File(it, "tomtom-poi-check.txt") }), overlapBudget) else null
@@ -695,7 +695,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     }
 
     /** The area filter in use, or null for the whole file. */
-    fun gpiFilter(): ((Point) -> Boolean)? = if (gpiAreaOnly) areaFilter(osmCountries.split(',', ' ', ';').filter { it.isNotBlank() }) else null
+    fun gpiFilter(): ((Point) -> Boolean)? = if (gpiAreaOnly) areaFilter(runCatching { app.mapstotom.core.parseCountries(osmCountries) }.getOrDefault(emptyList())) else null
 
     /** "iOverlander Wild Camping": the file's first word keeps categories from different files apart. */
     fun gpiCategoryName(c: GpiCategory) = listOfNotNull(gpiFile?.title?.substringBefore(' ')?.takeIf { it.isNotBlank() }, c.name).joinToString(" ")

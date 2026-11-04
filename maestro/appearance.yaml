@@ -1,0 +1,31 @@
+appId: app.mapstotom
+---
+- launchApp
+- waitForAnimationToEnd
+- tapOn: "Device"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element: "Accent colour"
+    direction: DOWN
+- takeScreenshot: a1-appearance
+- tapOn: "Pine"
+- tapOn: "Light"
+- waitForAnimationToEnd
+- takeScreenshot: a2-pine-light
+- tapOn: "Send"
+- waitForAnimationToEnd
+- takeScreenshot: a3-send-pine-light
+- tapOn: "Device"
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element: "Accent colour"
+    direction: DOWN
+- tapOn: "Plum"
+- tapOn: "Dark"
+- waitForAnimationToEnd
+- takeScreenshot: a4-plum-dark
+# Put back what the tablet had: Auto and Blue
+- tapOn: "Blue"
+- tapOn: "Auto"
+- waitForAnimationToEnd
+- takeScreenshot: a5-restored
