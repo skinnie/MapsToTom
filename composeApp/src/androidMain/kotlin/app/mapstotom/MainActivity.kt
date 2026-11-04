@@ -148,10 +148,17 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 shared.collect { text -> if (text != null) { state.addText(text); shared.value = null } }
             }
-            val dark = isSystemInDarkTheme()
+            val system = isSystemInDarkTheme()
+            val dark = state.themeMode.isDark(system)
+            // Status and navigation bar icons follow the app's light/dark choice, not the phone's.
+            LaunchedEffect(dark) {
+                val clear = android.graphics.Color.TRANSPARENT
+                val style = if (dark) androidx.activity.SystemBarStyle.dark(clear) else androidx.activity.SystemBarStyle.light(clear, clear)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
             // Paint behind the status and navigation bars with the app's own background.
             Box(Modifier.fillMaxSize().background(if (dark) app.mapstotom.ui.DarkTokens.page else app.mapstotom.ui.LightTokens.page)) {
-                Box(Modifier.fillMaxSize().safeDrawingPadding()) { App(state, dark = dark) }
+                Box(Modifier.fillMaxSize().safeDrawingPadding()) { App(state, dark = system) }
             }
         }
     }

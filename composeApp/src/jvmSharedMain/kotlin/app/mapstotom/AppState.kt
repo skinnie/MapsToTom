@@ -169,6 +169,17 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     fun changeAutoQuickFix(on: Boolean) { autoQuickFix = on; platform.saveSetting("autoQuickFix", if (on) "on" else "off") }
 
+    // ---------------------------------------------------------- appearance
+    var themeMode by mutableStateOf(platform.loadSetting("theme")?.let { v -> app.mapstotom.ui.ThemeMode.entries.find { it.name == v } }
+        ?: app.mapstotom.ui.ThemeMode.AUTO)
+        private set
+    var accent by mutableStateOf(platform.loadSetting("accent")?.let { v -> app.mapstotom.ui.Accent.entries.find { it.name == v } }
+        ?: app.mapstotom.ui.Accent.BLUE)
+        private set
+
+    fun changeThemeMode(m: app.mapstotom.ui.ThemeMode) { themeMode = m; platform.saveSetting("theme", m.name) }
+    fun changeAccent(a: app.mapstotom.ui.Accent) { accent = a; platform.saveSetting("accent", a.name) }
+
     /** Expiry of the QuickGPSFix last seen on the TomTom, remembered between runs. */
     val lastQuickFixExpiry: Instant? get() = platform.loadSetting("quickFixExpiry")?.toLongOrNull()?.let(Instant::ofEpochSecond)
 

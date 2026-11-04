@@ -28,7 +28,8 @@ enum class Tab(val label: String, val icon: ImageVector) {
 
 @Composable
 fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
-    MapsToTomTheme(dark) {
+    // [dark] is the system's setting; the user's Auto/Light/Dark choice decides.
+    MapsToTomTheme(state.themeMode.isDark(dark), state.accent) {
         val t = LocalTokens.current
         var tab by remember { mutableStateOf(startTab) }
         val tabs = remember { Tab.entries.filter { it != Tab.CAR || state.platform.carLink != null } }

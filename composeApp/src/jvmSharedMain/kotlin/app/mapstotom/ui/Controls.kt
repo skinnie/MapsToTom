@@ -8,6 +8,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -64,6 +65,33 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
             ) {
                 Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false,
                     color = when { on -> t.onActionSoft; enabled -> t.textMuted; else -> t.textMuted.copy(alpha = 0.6f) })
+            }
+        }
+    }
+}
+
+/** Accent swatches: a dot in the accent's colour for the current theme, its name, and a ring on the chosen one. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AccentPicker(selected: Accent, onSelect: (Accent) -> Unit) {
+    val t = LocalTokens.current
+    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+        Accent.entries.forEach { a ->
+            val on = a == selected
+            val c = if (t.dark) a.dark else a.light
+            Row(
+                Modifier.height(40.dp).clip(Radius.pill)
+                    .border(BorderStroke(if (on) 2.dp else 1.dp, if (on) t.action else t.borderStrong), Radius.pill)
+                    .background(if (on) t.actionSoft else t.surface)
+                    .selectable(on, role = Role.RadioButton) { onSelect(a) }
+                    .padding(start = Space.sm, end = Space.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(22.dp).clip(Radius.pill).background(c.action), contentAlignment = Alignment.Center) {
+                    if (on) Icon(Icons.Filled.Check, null, Modifier.size(14.dp), tint = c.onAction)
+                }
+                Spacer(Modifier.width(Space.sm))
+                Text(a.label, style = MaterialTheme.typography.labelLarge, color = if (on) t.onActionSoft else t.text)
             }
         }
     }

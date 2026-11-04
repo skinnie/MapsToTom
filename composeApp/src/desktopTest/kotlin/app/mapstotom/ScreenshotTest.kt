@@ -116,6 +116,26 @@ class ScreenshotTest {
         shot(AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)), Tab.SEND, "send-empty", 1100, 1100)
     }
 
+    /** The Appearance section with each accent, light and dark, and a Send screen in each, at phone width. */
+    @Test fun renderAppearance() {
+        val dir = out ?: return
+        dir.mkdirs()
+        for (accent in app.mapstotom.ui.Accent.entries) for (dark in listOf(false, true)) {
+            val state = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined))
+            state.changeAccent(accent)
+            state.changeThemeMode(if (dark) app.mapstotom.ui.ThemeMode.DARK else app.mapstotom.ui.ThemeMode.LIGHT)
+            state.points.addAll(parseInput(route, null).points)
+            for (tab in listOf(Tab.DEVICE, Tab.SEND)) {
+                val scene = ImageComposeScene(412, 1100, Density(1f)) { App(state, dark = !dark, startTab = tab) } // system says the opposite: the choice must win
+                var t = 0L
+                repeat(8) { scene.render(t); t += 100_000_000; Thread.sleep(40) }
+                File(dir, "accent-${accent.name.lowercase()}-${if (dark) "dark" else "light"}-${tab.name.lowercase()}.png")
+                    .writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+                scene.close()
+            }
+        }
+    }
+
     @Test fun renderAllScreens() {
         val dir = out ?: return
         dir.mkdirs()

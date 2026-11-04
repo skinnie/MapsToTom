@@ -42,6 +42,7 @@ data class Tokens(
     val onDanger: Color,
     val dangerSoft: Color,
     val onDangerSoft: Color,
+    val dark: Boolean = false,
 )
 
 val LightTokens = Tokens(
@@ -64,9 +65,48 @@ val DarkTokens = Tokens(
     ok = Color(0xFF7BD3A0), warn = Color(0xFFE6B54A),
     danger = Color(0xFFF2A7A1), onDanger = Color(0xFF4A0E0A),
     dangerSoft = Color(0xFF4A1A17), onDangerSoft = Color(0xFFFBD9D6),
+    dark = true,
 )
 
 val LocalTokens = staticCompositionLocalOf { LightTokens }
+
+// ---------------------------------------------------------------- user choices: light/dark and accent
+
+/** Light or dark: [AUTO] follows the phone or computer. */
+enum class ThemeMode(val label: String) {
+    AUTO("Auto"), LIGHT("Light"), DARK("Dark");
+    fun isDark(system: Boolean) = when (this) { AUTO -> system; LIGHT -> false; DARK -> true }
+}
+
+/** The accent's four colours in one theme. */
+@Immutable
+data class AccentSet(val action: Color, val onAction: Color, val actionSoft: Color, val onActionSoft: Color)
+
+/**
+ * The one accent colour (buttons, links, selection). Only the accent changes; page, text and status colours stay
+ * neutral, so warnings and errors read the same with every accent. Each has its own dark step, and every pair
+ * passes WCAG AA on the surface, sunken and soft backgrounds of its theme.
+ */
+enum class Accent(val label: String, val light: AccentSet, val dark: AccentSet) {
+    BLUE("Blue",
+        AccentSet(Color(0xFF1D5BBF), Color(0xFFFCFCFA), Color(0xFFE2EBF9), Color(0xFF123A73)),
+        AccentSet(Color(0xFF8DB5F7), Color(0xFF0C2A57), Color(0xFF1E3558), Color(0xFFD6E4FB))),
+    PINE("Pine",
+        AccentSet(Color(0xFF2E6A57), Color(0xFFFCFCFA), Color(0xFFDDEDE6), Color(0xFF173D31)),
+        AccentSet(Color(0xFF7BC0A6), Color(0xFF0B2A20), Color(0xFF1A3A30), Color(0xFFD3EEE4))),
+    PLUM("Plum",
+        AccentSet(Color(0xFF7B3F8C), Color(0xFFFCFCFA), Color(0xFFF1E4F4), Color(0xFF4A2155)),
+        AccentSet(Color(0xFFD3A6E0), Color(0xFF3A1446), Color(0xFF3B2244), Color(0xFFF1DDF6))),
+    GRAPHITE("Graphite",
+        AccentSet(Color(0xFF3D4A5C), Color(0xFFFCFCFA), Color(0xFFE3E7EC), Color(0xFF222B37)),
+        AccentSet(Color(0xFFB8C4D4), Color(0xFF1B2330), Color(0xFF2C3440), Color(0xFFDCE4EE)));
+
+    fun tokens(dark: Boolean): Tokens {
+        val a = if (dark) this.dark else light
+        return (if (dark) DarkTokens else LightTokens)
+            .copy(action = a.action, onAction = a.onAction, actionSoft = a.actionSoft, onActionSoft = a.onActionSoft)
+    }
+}
 
 // ---------------------------------------------------------------- spacing (4 dp base)
 
@@ -103,8 +143,8 @@ private val Type = Typography(
 )
 
 @Composable
-fun MapsToTomTheme(dark: Boolean, content: @Composable () -> Unit) {
-    val t = if (dark) DarkTokens else LightTokens
+fun MapsToTomTheme(dark: Boolean, accent: Accent = Accent.BLUE, content: @Composable () -> Unit) {
+    val t = accent.tokens(dark)
     val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
         primary = t.action, onPrimary = t.onAction,
         primaryContainer = t.actionSoft, onPrimaryContainer = t.onActionSoft,

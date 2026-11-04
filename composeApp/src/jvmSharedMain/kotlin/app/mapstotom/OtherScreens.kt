@@ -212,9 +212,31 @@ private fun AddonRow(title: String, detail: String, on: Boolean, enabled: Boolea
     }
 }
 
+/** Light/dark and the accent colour. Shown with or without a TomTom, above the credits. */
+@Composable
+private fun AppearanceSection(state: AppState) {
+    val t = LocalTokens.current
+    Spacer(Modifier.height(Space.xxl))
+    Text("Appearance", style = MaterialTheme.typography.headlineSmall, color = t.text)
+    Spacer(Modifier.height(Space.md))
+    Panel(Modifier.widthIn(max = Space.measure)) {
+        Text("Theme", style = MaterialTheme.typography.titleSmall, color = t.text)
+        Spacer(Modifier.height(Space.sm))
+        Segmented(ThemeMode.entries.map { it.label }, state.themeMode.ordinal, { state.changeThemeMode(ThemeMode.entries[it]) })
+        Spacer(Modifier.height(Space.xs))
+        Text("Auto follows the ${if (state.platform.isAndroid) "phone's" else "computer's"} light or dark setting.",
+            style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+        Spacer(Modifier.height(Space.lg))
+        Text("Accent colour", style = MaterialTheme.typography.titleSmall, color = t.text)
+        Spacer(Modifier.height(Space.sm))
+        AccentPicker(state.accent, state::changeAccent)
+    }
+}
+
 @Composable
 private fun AboutFooter(state: AppState) {
     val t = LocalTokens.current
+    AppearanceSection(state)
     Spacer(Modifier.height(Space.xxxl))
     Hairline()
     Spacer(Modifier.height(Space.lg))
