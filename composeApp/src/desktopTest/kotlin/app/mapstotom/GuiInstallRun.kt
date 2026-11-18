@@ -4,7 +4,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
-import app.mapstotom.core.translated
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -91,36 +90,48 @@ class ApplyNamesRun {
 }
 
 /**
- * The Foursquare install for a card on the PC, with the app's own code. WRITES TO THE CARD.
- * -Pm2t.fsqCard=<card root> [-Pm2t.fsqCountries=PT] [-Pm2t.fsqSince=2020] [-Pm2t.fsqTypes=RESTAURANT,CAFE]
+ * The Foursquare or Overture install for a card on the PC, with the app's own code. WRITES TO THE CARD.
+ * -Pm2t.fsqCard=<card root> [-Pm2t.fsqSource=free|latest|overture] [-Pm2t.fsqCountries=PT] [-Pm2t.fsqSince=2020]
+ * [-Pm2t.fsqTypes=RESTAURANT,CAFE] [-Pm2t.fsqConfidence=0.6]; "latest" reads the Hugging Face token from -Pm2t.fsqTokenFile.
  */
 class FoursquareInstallRun {
     @Test fun run() {
         val root = System.getProperty("m2t.fsqCard")?.let(::File) ?: return
+        app.mapstotom.core.ParquetCodecs.zstd = { b, n -> com.github.luben.zstd.Zstd.decompress(b, n) }
         val fs = app.mapstotom.core.LocalFs(root)
         val map = app.mapstotom.core.findMapFolder(fs) ?: error("no map folder")
         val lang = app.mapstotom.core.tomtomLanguage(app.mapstotom.core.readBif(fs))
-        val index = app.mapstotom.core.FsqIndex.parse(File("src/commonMain/composeResources/files/fsq/index.json").readText())
+        val res = File("src/commonMain/composeResources/files")
+        val boxes = app.mapstotom.core.CountryBoxes.parse(File(res, "country-boxes.json").readText())
         val countries = (System.getProperty("m2t.fsqCountries") ?: "PT").split(',').map { it.trim() }
         val since = System.getProperty("m2t.fsqSince")?.toInt() ?: app.mapstotom.core.FSQ_DEFAULT_SINCE
-        val types = System.getProperty("m2t.fsqTypes")?.split(',')?.map { app.mapstotom.core.FsqPoiType.valueOf(it.trim()) }
-            ?: app.mapstotom.core.FsqPoiType.entries
+        val source = System.getProperty("m2t.fsqSource") ?: "free"
+        val kinds = (System.getProperty("m2t.fsqTypes")?.split(',')?.map { app.mapstotom.core.PlaceKind.valueOf(it.trim()) }
+            ?: app.mapstotom.core.PlaceKind.entries).filter { source != "overture" || it.overture.isNotEmpty() }
+        val net = app.mapstotom.core.RealNet()
+        val cache = File("build/parquet-footers")
         val t0 = System.currentTimeMillis()
-        val got = app.mapstotom.core.fetchFoursquare(index, countries, types.toSet(), since, app.mapstotom.core.RealNet()) { i, n ->
-            if (i % 10 == 0) println("FSQ: part $i of $n")
-        }
-        println("FSQ: downloaded in ${(System.currentTimeMillis() - t0) / 1000} s")
-        for (t in types) {
-            val pts = got[t].orEmpty()
-            val cat = t.tomtomCategory
-            if (cat != null) {
-                val r = app.mapstotom.core.installIntoTomTomCategory(fs, map, cat, t.source, pts)
-                println("FSQ: ${t.label}: ${pts.size} found, ${r.added} added to PA$cat${app.mapstotom.core.categoryNearNote(r)}, ${r.yours} of yours kept")
-            } else {
-                val name = t.translated!!.nameIn(lang)
-                app.mapstotom.core.writePoiCategory(fs, map, name, pts, app.mapstotom.core.categoryIconBmp(t.rgb, t.glyph))
-                println("FSQ: ${t.label}: ${pts.size} written as $name")
+        val log: (Int, Int) -> Unit = { i, n -> if (i % 10 == 0) println("PLACES: step $i of $n") }
+        app.mapstotom.core.moveNamedIntoTomTomCategories(fs, map).forEach { println("PLACES: moved $it") }
+        val got = when (source) {
+            "overture" -> {
+                val rel = app.mapstotom.core.latestOvertureRelease(net); println("PLACES: Overture ${rel.name}, ${rel.files.size} files")
+                app.mapstotom.core.fetchOverture(rel, countries, boxes, kinds.toSet(),
+                    System.getProperty("m2t.fsqConfidence")?.toDouble() ?: app.mapstotom.core.OVERTURE_DEFAULT_CONFIDENCE, net, cache, log)
             }
+            "latest" -> {
+                val token = File(System.getProperty("m2t.fsqTokenFile") ?: error("-Pm2t.fsqTokenFile needed")).readText().trim()
+                val rel = app.mapstotom.core.latestFsqRelease(net); println("PLACES: Foursquare ${rel.date}, ${rel.files.size} files")
+                app.mapstotom.core.fetchFoursquareLatest(rel, token, countries, boxes, kinds.toSet(), since, net, cache, log)
+            }
+            else -> app.mapstotom.core.fetchFoursquare(app.mapstotom.core.FsqIndex.parse(File(res, "fsq/index.json").readText()),
+                countries, kinds.toSet(), since, net, log)
+        }
+        println("PLACES: downloaded in ${(System.currentTimeMillis() - t0) / 1000} s")
+        for (k in kinds) {
+            val src = if (source == "overture") k.overtureSource else k.fsqSource
+            val r = app.mapstotom.core.installPlaceKind(fs, map, k, src, got[k].orEmpty(), lang)
+            println("PLACES: ${k.label}: ${got[k].orEmpty().size} found, ${r.added} added${app.mapstotom.core.categoryNearNote(r)}, ${r.yours} of yours kept")
         }
     }
 }

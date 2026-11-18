@@ -38,7 +38,7 @@ class FuelInfo(val countries: List<String>, val sources: List<FuelSource>, val s
 /** Where on screen a job was started, so its steps, result and busy button show there. */
 object Job {
     const val DETECT = "detect"; const val SEND_INPUT = "send.input"; const val ROUTE = "send.route"; const val SEND_POIS = "send.pois"
-    const val GPS = "gps"; const val FUEL = "fuel"; const val OSM = "osm"; const val FSQ = "fsq"; const val GOOGLE = "google"; const val GPI = "gpi"
+    const val GPS = "gps"; const val FUEL = "fuel"; const val OSM = "osm"; const val FSQ = "fsq"; const val OVERTURE = "overture"; const val GOOGLE = "google"; const val GPI = "gpi"
     const val FOLDER = "folder"; const val ON_DEVICE = "ondevice"; const val DEVICE = "device"; const val BACKUP = "backup"
 }
 
@@ -611,45 +611,83 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say("Installed from OpenStreetMap: ${done.joinToString(", ")}.$later On the TomTom: Navigate to → Point of Interest.")
     }
 
-    // ---------------------------------------------------------- Foursquare places
-    /** Leave out places not confirmed since this year. */
+    // ---------------------------------------------------------- Foursquare and Overture places
+    /** Leave out Foursquare places not confirmed since this year. */
     var fsqSince by mutableStateOf(platform.loadSetting("fsq.since")?.toIntOrNull() ?: FSQ_DEFAULT_SINCE)
         private set
     fun changeFsqSince(year: Int) { fsqSince = year; platform.saveSetting("fsq.since", year.toString()) }
 
-    fun installFoursquare(types: List<FsqPoiType>) = work("Downloading from Foursquare…", Job.FSQ) {
+    /** The user's Hugging Face read token, for Foursquare's own monthly copy; null = use the free 2025 copy. */
+    val hfToken: String? get() = platform.loadSetting("fsq.hfToken")?.trim()?.takeIf { it.isNotEmpty() }
+    fun saveHfToken(token: String) { platform.saveSetting("fsq.hfToken", token.trim().ifEmpty { null }) }
+    /** Use the token's newest release instead of the free copy. */
+    var fsqUseLatest by mutableStateOf(platform.loadSetting("fsq.latest") == "1")
+        private set
+    fun changeFsqUseLatest(on: Boolean) { fsqUseLatest = on; platform.saveSetting("fsq.latest", if (on) "1" else "0") }
+
+    /** Leave out Overture places below this confidence. */
+    var overtureConfidence by mutableStateOf(platform.loadSetting("overture.confidence")?.toDoubleOrNull() ?: OVERTURE_DEFAULT_CONFIDENCE)
+        private set
+    fun changeOvertureConfidence(c: Double) { overtureConfidence = c; platform.saveSetting("overture.confidence", c.toString()) }
+
+    private var boxesLoaded: CountryBoxes? = null
+    private suspend fun countryBoxes() = boxesLoaded ?: CountryBoxes.parse(Res.readBytes("files/country-boxes.json").decodeToString()).also { boxesLoaded = it }
+    private val footerCache get() = platform.dataDir?.let { java.io.File(it, "parquet-footers") }
+
+    fun installFoursquare(kinds: List<PlaceKind>) = work("Downloading from Foursquare…", Job.FSQ) {
         val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
         val cc = app.mapstotom.core.parseCountries(osmCountries)
-        val index = FsqIndex.parse(Res.readBytes("files/fsq/index.json").decodeToString())
-        plan(listOf("Download places") + types.map { it.label })
+        val token = hfToken?.takeIf { fsqUseLatest }
+        plan(listOf("Download places") + kinds.map { it.label })
         step(0)
-        val got = fetchFoursquare(index, cc, types.toSet(), fsqSince, net) { i, n ->
-            progress(i, n, "parts")
-            if (i < n) step(0, "${i * 100 / maxOf(n, 1)}%")
+        val onProgress: (Int, Int) -> Unit = { i, n -> progress(i, n, "parts"); if (i < n) step(0, "${i * 100 / maxOf(n, 1)}%") }
+        val (release, got) = if (token != null) {
+            val rel = latestFsqRelease(net)
+            step(0, "release ${rel.date}")
+            val got = try {
+                fetchFoursquareLatest(rel, token, cc, countryBoxes(), kinds.toSet(), fsqSince, net, footerCache, onProgress)
+            } catch (e: AccessDenied) {
+                error("Hugging Face didn't accept your token. Open $HF_DATASET_PAGE while logged in, accept Foursquare's terms, " +
+                    "and use a token with read access.")
+            }
+            rel.date to got
+        } else {
+            val index = FsqIndex.parse(Res.readBytes("files/fsq/index.json").decodeToString())
+            index.release to fetchFoursquare(index, cc, kinds.toSet(), fsqSince, net, onProgress)
         }
         progress = null
-        stepDetail(0, "%,d places".format(got.values.sumOf { it.size }))
-        val done = mutableListOf<String>()
-        types.forEachIndexed { i, t ->
-            step(i + 1)
-            val pts = got[t].orEmpty()
-            val cat = t.tomtomCategory
-            if (cat != null) {
-                val ci = installIntoTomTomCategory(d.fs, map, cat, t.source, pts)
-                val near = categoryNearNote(ci)
-                done += "${t.label} ${ci.added}" + near.takeIf { it.isNotEmpty() }?.let { " (${it.removePrefix(", ")})" }.orEmpty()
-                stepDetail(i + 1, "%,d added to the TomTom's own category".format(ci.added) + near)
-            } else {
-                val named = t.translated ?: error("no name for ${t.label}")
-                writePoiCategory(d.fs, map, named.nameIn(d.language), pts, categoryIconBmp(t.rgb, t.glyph))
-                done += "${t.label} ${pts.size}"
-                stepDetail(i + 1, "%,d added".format(pts.size))
-            }
-        }
+        stepDetail(0, "%,d places, release $release".format(got.values.sumOf { it.size }))
+        val done = installKinds(d, map, kinds, got) { it.fsqSource }
         gen++
         needsRestart()
-        say("Installed from Foursquare: ${done.joinToString(", ")}. Places confirmed since $fsqSince, release ${index.release}. On the TomTom: Navigate to → Point of Interest.")
+        say("Installed from Foursquare ($release): ${done.joinToString(", ")}. Places confirmed since $fsqSince. On the TomTom: Navigate to → Point of Interest.")
     }
+
+    fun installOverture(kinds: List<PlaceKind>) = work("Downloading from Overture Maps…", Job.OVERTURE) {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val cc = app.mapstotom.core.parseCountries(osmCountries)
+        plan(listOf("Download places") + kinds.map { it.label })
+        step(0)
+        val rel = latestOvertureRelease(net)
+        step(0, "release ${rel.name}")
+        val got = fetchOverture(rel, cc, countryBoxes(), kinds.toSet(), overtureConfidence, net, footerCache) { i, n ->
+            progress(i, n, "parts"); if (i < n) step(0, "${i * 100 / maxOf(n, 1)}%")
+        }
+        progress = null
+        stepDetail(0, "%,d places, release ${rel.name}".format(got.values.sumOf { it.size }))
+        val done = installKinds(d, map, kinds, got) { it.overtureSource }
+        gen++
+        needsRestart()
+        say("Installed from Overture Maps (${rel.name}): ${done.joinToString(", ")}. On the TomTom: Navigate to → Point of Interest.")
+    }
+
+    private fun installKinds(d: DeviceInfo, map: String, kinds: List<PlaceKind>, got: Map<PlaceKind, List<Point>>, source: (PlaceKind) -> String): List<String> =
+        kinds.mapIndexed { i, k ->
+            step(i + 1)
+            val r = installPlaceKind(d.fs, map, k, source(k), got[k].orEmpty(), d.language)
+            stepDetail(i + 1, "%,d added".format(r.added) + (if (k.tomtomCategory != null) " to the TomTom's own category" else "") + categoryNearNote(r))
+            placeInstallNote(k, r)
+        }
 
     // ---------------------------------------------------------- fuel prices
     /** The fuel whose prices go on the TomTom (its .fpf holds one type). */

@@ -27,7 +27,7 @@ private val LANGUAGE_PREFIXES = linkedMapOf(
 
 /**
  * One category this app names: [names] in [POI_LANGUAGES] order (accents allowed here, see [nameIn]),
- * [source] added at the end ("Piscinas (OSM)"), and [older] names it had before, so those are renamed too.
+ * [source] added at the end ("Piscinas (OSM)"; none when empty), and [older] names it had before, so those are renamed too.
  */
 class TranslatedCategory(val source: String, val names: List<String>, val older: List<String> = emptyList()) {
     init { require(names.size == POI_LANGUAGES.size) }
@@ -36,7 +36,8 @@ class TranslatedCategory(val source: String, val names: List<String>, val older:
      * The file name (without extension) in [lang]. Plain ASCII, because an accent in a POI file name is known to
      * come out wrong on some TomTom cards; German umlauts become ae/oe/ue.
      */
-    fun nameIn(lang: String): String = safeFilename(ascii(names.getOrNull(POI_LANGUAGES.indexOf(lang)) ?: names[0]) + " ($source)")
+    fun nameIn(lang: String): String =
+        safeFilename(ascii(names.getOrNull(POI_LANGUAGES.indexOf(lang)) ?: names[0]) + if (source.isEmpty()) "" else " ($source)")
 
     /** Every name this category may have on the card, lower case. */
     fun knownNames(): Set<String> = (POI_LANGUAGES.map { nameIn(it) } + older).map { it.lowercase() }.toSet()
@@ -64,15 +65,18 @@ private val OSM_NAMES: Map<OsmPoiType, TranslatedCategory> = mapOf(
 val OsmPoiType.translated: TranslatedCategory get() = OSM_NAMES.getValue(this)
 fun OsmPoiType.categoryName(lang: String): String = translated.nameIn(lang)
 
-/** Foursquare kinds the TomTom has no category for (the others go into its own categories, see TomTomCategories.kt). */
-private val FSQ_NAMES: Map<FsqPoiType, TranslatedCategory> = mapOf(
-    FsqPoiType.CAFE to listOf("Cafés and bakeries", "Cafés e pastelarias", "Cafeterías y panaderías", "Cafés et boulangeries", "Cafés und Bäckereien", "Bar e pasticcerie", "Cafés en bakkerijen"),
-    FsqPoiType.BAR to listOf("Bars", "Bares", "Bares", "Bars", "Bars", "Bar", "Bars"),
-    FsqPoiType.SUPERMARKET to listOf("Supermarkets", "Supermercados", "Supermercados", "Supermarchés", "Supermärkte", "Supermercati", "Supermarkten"),
-).mapValues { (_, n) -> TranslatedCategory("Foursquare", n) }
+/**
+ * Place kinds the TomTom has no category for (the others go into its own categories, see TomTomCategories.kt). One
+ * file per kind, shared by the place sources (Foursquare, Overture), so it has no source in its name.
+ */
+private val FSQ_NAMES: Map<PlaceKind, TranslatedCategory> = mapOf(
+    PlaceKind.CAFE to listOf("Cafés and bakeries", "Cafés e pastelarias", "Cafeterías y panaderías", "Cafés et boulangeries", "Cafés und Bäckereien", "Bar e pasticcerie", "Cafés en bakkerijen"),
+    PlaceKind.BAR to listOf("Bars", "Bares", "Bares", "Bars", "Bars", "Bar", "Bars"),
+    PlaceKind.SUPERMARKET to listOf("Supermarkets", "Supermercados", "Supermercados", "Supermarchés", "Supermärkte", "Supermercati", "Supermarkten"),
+).mapValues { (_, n) -> TranslatedCategory("", n) }
 
-/** The named category for a Foursquare kind without a TomTom category, or null. */
-val FsqPoiType.translated: TranslatedCategory? get() = FSQ_NAMES[this]
+/** The named category for a place kind without a TomTom category, or null. */
+val PlaceKind.translated: TranslatedCategory? get() = FSQ_NAMES[this]
 
 /** iOverlander's categories (its .gpi files name them in English), keyed by that English name. */
 private val IOVERLANDER: Map<String, TranslatedCategory> = listOf(
@@ -124,7 +128,7 @@ fun renameTranslatedCategories(fs: DeviceFs, mapDir: String, lang: String): List
             val base = ov2.dropLast(4)
             if (base == target) continue
             if (names.any { it.equals("$target.ov2", true) }) continue // both exist: leave it to the user
-            for (ext in listOf("ov2", "bmp", "ogg")) {
+            for (ext in listOf("ov2", "bmp", "ogg", "ov2.mapstotom")) {
                 val f = names.firstOrNull { it.equals("$base.$ext", true) } ?: continue
                 fs.rename(join(mapDir, f), "$target.$ext")
             }

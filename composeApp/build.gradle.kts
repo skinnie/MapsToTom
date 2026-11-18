@@ -45,11 +45,14 @@ kotlin {
             implementation("androidx.activity:activity-compose:1.10.1")
             implementation("androidx.documentfile:documentfile:1.1.0")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+            // Zstandard for Overture's Parquet files (core/Parquet.kt, ParquetCodecs). 1.5.7-13 and later need compileSdk 37.
+            implementation("com.github.luben:zstd-jni:1.5.7-12@aar")
         }
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+                implementation("com.github.luben:zstd-jni:1.5.7-12")
             }
         }
         val desktopTest by getting {
@@ -106,5 +109,5 @@ compose.desktop {
 
 // Optional real-data tests: ./gradlew desktopTest -Pm2t.online=1 -Pm2t.goTtsystem=/path/to/ttsystem
 tasks.withType<Test>().configureEach {
-    listOf("m2t.online", "m2t.goTtsystem", "m2t.shots", "m2t.device", "m2t.gpx", "m2t.stage", "m2t.gpi", "m2t.gpiInstall", "m2t.fuelOut", "m2t.overlap", "m2t.osmInstall", "m2t.osmCountries", "m2t.osmKeyFile", "m2t.osmBudget", "m2t.osmTypes", "m2t.osmLang", "m2t.gui", "m2t.guiCountries", "m2t.guiType", "m2t.applyCard", "m2t.fsqCard", "m2t.fsqCountries", "m2t.fsqSince", "m2t.fsqTypes").forEach { k -> project.findProperty(k)?.let { systemProperty(k, it) } }
+    listOf("m2t.online", "m2t.goTtsystem", "m2t.shots", "m2t.device", "m2t.gpx", "m2t.stage", "m2t.gpi", "m2t.gpiInstall", "m2t.fuelOut", "m2t.overlap", "m2t.osmInstall", "m2t.osmCountries", "m2t.osmKeyFile", "m2t.osmBudget", "m2t.osmTypes", "m2t.osmLang", "m2t.gui", "m2t.guiCountries", "m2t.guiType", "m2t.applyCard", "m2t.fsqCard", "m2t.fsqCountries", "m2t.fsqSince", "m2t.fsqTypes", "m2t.fsqSource", "m2t.fsqConfidence", "m2t.fsqTokenFile").forEach { k -> project.findProperty(k)?.let { systemProperty(k, it) } }
 }

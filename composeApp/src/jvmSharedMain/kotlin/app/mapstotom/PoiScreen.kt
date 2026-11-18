@@ -51,6 +51,8 @@ private fun AddPois(state: AppState) {
     Spacer(Modifier.height(Space.xxl))
     FoursquareSection(state)
     Spacer(Modifier.height(Space.xxl))
+    OvertureSection(state)
+    Spacer(Modifier.height(Space.xxl))
     GoogleSection(state)
     Spacer(Modifier.height(Space.xxl))
     GpiSection(state)
@@ -186,20 +188,14 @@ private fun OsmSection(state: AppState) {
     SkippedList(state)
 }
 
-// ------------------------------------------------------------------ Foursquare
+// ------------------------------------------------------------------ Foursquare and Overture
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** The kinds of place a source offers, as a checklist. */
 @Composable
-private fun FoursquareSection(state: AppState) {
+private fun KindChecklist(kinds: List<PlaceKind>, chosen: MutableList<PlaceKind>) {
     val t = LocalTokens.current
-    val idle = state.busy == null
-    val chosen = remember { mutableStateListOf(FsqPoiType.RESTAURANT) }
-    SectionTitle("From Foursquare")
-    Prose("Restaurants, cafés, hotels, museums and more from Foursquare's open places. Kinds the TomTom already has " +
-        "go into its own categories, next to your own POIs; places near ones already there are left out.")
-    Spacer(Modifier.height(Space.md))
     Panel(padding = PaddingValues(horizontal = Space.sm, vertical = Space.xs)) {
-        FsqPoiType.entries.forEachIndexed { i, type ->
+        kinds.forEachIndexed { i, type ->
             if (i > 0) Hairline()
             CheckRow(type in chosen, { on -> if (on) chosen.add(type) else chosen.remove(type) }, Modifier.fillMaxWidth()) {
                 Text(type.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = t.text)
@@ -208,30 +204,107 @@ private fun FoursquareSection(state: AppState) {
             }
         }
     }
-    Spacer(Modifier.height(Space.md))
-    Text("Countries: ${state.osmCountries.ifBlank { "set them under OpenStreetMap above" }}", style = MaterialTheme.typography.bodyMedium, color = t.text)
-    Spacer(Modifier.height(Space.sm))
-    Text("Only places confirmed since", style = MaterialTheme.typography.labelLarge, color = t.textMuted)
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun <T> ChoiceChips(label: String, options: List<Pair<T, String>>, selected: T, enabled: Boolean, onSelect: (T) -> Unit) {
+    val t = LocalTokens.current
+    Text(label, style = MaterialTheme.typography.labelLarge, color = t.textMuted)
     Spacer(Modifier.height(Space.xs))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-        listOf(2016, 2018, 2020, 2022, 2024).forEach { y ->
+        options.forEach { (v, text) ->
             FilterChip(
-                selected = state.fsqSince == y, onClick = { state.changeFsqSince(y) }, enabled = idle,
-                label = { Text(y.toString()) }, shape = Radius.pill,
-                leadingIcon = if (state.fsqSince == y) ({ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }) else null,
+                selected = selected == v, onClick = { onSelect(v) }, enabled = enabled,
+                label = { Text(text) }, shape = Radius.pill,
+                leadingIcon = if (selected == v) ({ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }) else null,
                 colors = FilterChipDefaults.filterChipColors(selectedContainerColor = t.actionSoft, selectedLabelColor = t.onActionSoft, labelColor = t.textMuted),
             )
         }
     }
+}
+
+@Composable
+private fun PlaceCountries(state: AppState) {
+    Text("Countries: ${state.osmCountries.ifBlank { "set them under OpenStreetMap above" }}",
+        style = MaterialTheme.typography.bodyMedium, color = LocalTokens.current.text)
+}
+
+private fun AppState.placesReady() = busy == null && device != null && osmCountries.isNotBlank() &&
+    app.mapstotom.core.countriesProblem(osmCountries) == null
+
+@Composable
+private fun FoursquareSection(state: AppState) {
+    val t = LocalTokens.current
+    val idle = state.busy == null
+    val chosen = remember { mutableStateListOf(PlaceKind.RESTAURANT) }
+    var token by remember { mutableStateOf(state.hfToken.orEmpty()) }
+    val latest = state.fsqUseLatest && token.isNotBlank()
+    SectionTitle("From Foursquare")
+    Prose("Restaurants, cafés, hotels, museums and more from Foursquare's open places. Kinds the TomTom already has " +
+        "go into its own categories, next to your own POIs; places near ones already there are left out.")
     Spacer(Modifier.height(Space.md))
-    val countryProblem = app.mapstotom.core.countriesProblem(state.osmCountries)
+    Segmented(listOf("Free copy, February 2025", "Newest, with your login"), if (state.fsqUseLatest) 1 else 0,
+        { state.changeFsqUseLatest(it == 1) }, enabled = idle)
+    Spacer(Modifier.height(Space.sm))
+    if (!state.fsqUseLatest) {
+        StatusRow(Status.WARN, "Places as of February 2025",
+            "The newest copy anyone can download without an account. Places opened since then are missing, and some closed " +
+                "since may still show. For newer places, use Overture Maps below, or Foursquare's own monthly copy with a free login.") {}
+    } else {
+        Prose("Foursquare's own copy is updated every month. It needs a free Hugging Face account: on the dataset page, " +
+            "accept Foursquare's terms (they ask for an organisation, job title, country and purpose, and may name your " +
+            "organisation in their marketing). Then make a token with read access under Settings → Access Tokens and paste it here.")
+        Spacer(Modifier.height(Space.sm))
+        TextButton(onClick = { state.platform.openUrl(HF_DATASET_PAGE) }, contentPadding = PaddingValues(0.dp)) {
+            Text("Open the Foursquare dataset page")
+        }
+        OutlinedTextField(token, { token = it.trim(); state.saveHfToken(token) }, Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+            label = { Text("Hugging Face token") }, singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            supportingText = { Text(if (token.isBlank()) "Starts with hf_" else "Saved on this computer only") })
+    }
+    Spacer(Modifier.height(Space.md))
+    KindChecklist(PlaceKind.entries, chosen)
+    Spacer(Modifier.height(Space.md))
+    PlaceCountries(state)
+    Spacer(Modifier.height(Space.sm))
+    ChoiceChips("Only places confirmed since", listOf(2016, 2018, 2020, 2022, 2024).map { it to it.toString() }, state.fsqSince, idle) { state.changeFsqSince(it) }
+    Spacer(Modifier.height(Space.md))
     PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installFoursquare(chosen.toList()) },
-        enabled = idle && state.device != null && chosen.isNotEmpty() && countryProblem == null && state.osmCountries.isNotBlank(),
+        enabled = state.placesReady() && chosen.isNotEmpty() && (!state.fsqUseLatest || latest),
         icon = Icons.Filled.Download, busy = state.running(Job.FSQ), busyText = "Installing…")
     JobFeedback(state, Job.FSQ)
     Spacer(Modifier.height(Space.xs))
-    Text("Data: Foursquare Open Source Places (Apache 2.0), release of February 2025. Closed places are always left out; " +
-        "older years add places nobody has confirmed in a long time. A country takes a minute or two.",
+    Text("Data: Foursquare Open Source Places (Apache 2.0). Closed places are always left out; older years add places " +
+        "nobody has confirmed in a long time. A country takes a few minutes.",
+        style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+}
+
+@Composable
+private fun OvertureSection(state: AppState) {
+    val t = LocalTokens.current
+    val idle = state.busy == null
+    val kinds = PlaceKind.entries.filter { it.overture.isNotEmpty() }
+    val chosen = remember { mutableStateListOf(PlaceKind.RESTAURANT) }
+    SectionTitle("From Overture Maps")
+    Prose("A newer, monthly places map from Meta, Microsoft and others, free and without an account. Same kinds as " +
+        "Foursquare except viewpoints; a place both have is added once.")
+    Spacer(Modifier.height(Space.md))
+    KindChecklist(kinds, chosen)
+    Spacer(Modifier.height(Space.md))
+    PlaceCountries(state)
+    Spacer(Modifier.height(Space.sm))
+    ChoiceChips("Places to include", listOf(0.4 to "More, some doubtful", 0.6 to "Balanced", 0.8 to "Only sure ones"),
+        state.overtureConfidence, idle) { state.changeOvertureConfidence(it) }
+    Spacer(Modifier.height(Space.md))
+    PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installOverture(chosen.toList()) },
+        enabled = state.placesReady() && chosen.isNotEmpty(), icon = Icons.Filled.Download,
+        busy = state.running(Job.OVERTURE), busyText = "Installing…")
+    JobFeedback(state, Job.OVERTURE)
+    Spacer(Modifier.height(Space.xs))
+    Text("Data: Overture Maps Foundation (CDLA Permissive 2.0), newest monthly release. Closed places are left out, and " +
+        "places Overture isn't sure exist, by the choice above. A country takes a minute or two.",
         style = MaterialTheme.typography.bodySmall, color = t.textMuted)
 }
 

@@ -84,8 +84,11 @@ class CategoryInstall(val file: String, val added: Int, val nearYours: Int, val 
  * Puts [points] from [source] into the TomTom's category [id]: the places [source] added before are replaced,
  * the user's own and other sources' stay. New places close to one of those are left out.
  */
-fun installIntoTomTomCategory(fs: DeviceFs, mapDir: String, id: Int, source: String, points: List<Point>): CategoryInstall {
-    val path = tomtomCategoryFile(mapDir, id)
+fun installIntoTomTomCategory(fs: DeviceFs, mapDir: String, id: Int, source: String, points: List<Point>): CategoryInstall =
+    installIntoCategoryFile(fs, tomtomCategoryFile(mapDir, id), source, points)
+
+/** Like [installIntoTomTomCategory], for any POI file [path] that keeps a list of what each source added. */
+fun installIntoCategoryFile(fs: DeviceFs, path: String, source: String, points: List<Point>): CategoryInstall {
     val old = fs.read(path)
     val c = old?.let(::readOv2Contents) ?: Ov2Contents(emptyList(), emptyList(), true)
     require(c.complete) { "${nameOf(path)} on the TomTom doesn't read as a POI file, so it was left alone" }
@@ -152,6 +155,7 @@ fun moveNamedIntoTomTomCategories(fs: DeviceFs, mapDir: String): List<String> {
         listOfNotNull(gpiTranslated("iOverlander", "Established Campground")?.let {
             Triple(it, TomTomCategory.CAMPGROUND, gpiSource("iOverlander", "Established Campground")) })
     val done = mutableListOf<String>()
+    done += moveOldFoursquareFiles(fs, mapDir)
     for ((named, id, source) in moves) {
         val known = named.knownNames()
         val files = fs.list(mapDir).filter { it.endsWith(".ov2", true) && it.dropLast(4).lowercase() in known }
@@ -208,4 +212,29 @@ private class NearIndex(entries: List<Ov2Entry>) {
         val x = Math.toRadians(lon2 - lon1) * cos(Math.toRadians((lat1 + lat2) / 2)); val y = Math.toRadians(lat2 - lat1)
         return sqrt(x * x + y * y) * 6_371_000.0
     }
+}
+
+/**
+ * The first Foursquare install named its own files "Bares (Foursquare)" and so on. Cafés, bars and supermarkets now
+ * share one file per kind with the other place sources, so those files move into it, kept as Foursquare's places.
+ */
+private fun moveOldFoursquareFiles(fs: DeviceFs, mapDir: String): List<String> {
+    val done = mutableListOf<String>()
+    for (k in PlaceKind.entries) {
+        val shared = k.translated ?: continue
+        val old = TranslatedCategory("Foursquare", shared.names)
+        val names = fs.list(mapDir)
+        for (lang in POI_LANGUAGES) {
+            val base = old.nameIn(lang)
+            val ov2 = names.firstOrNull { it.equals("$base.ov2", true) } ?: continue
+            val c = readOv2Contents(fs.read(join(mapDir, ov2)) ?: continue)
+            if (!c.complete) continue
+            val target = join(mapDir, shared.nameIn(lang))
+            val r = installIntoCategoryFile(fs, "$target.ov2", k.fsqSource, c.entries.map(Ov2Entry::toPoint))
+            fs.write("$target.bmp", categoryIconBmp(k.rgb, k.glyph))
+            for (f in names.filter { it.substringBeforeLast('.').equals(base, true) }) fs.delete(join(mapDir, f))
+            done += "$base → ${shared.nameIn(lang)} (${r.added})"
+        }
+    }
+    return done
 }

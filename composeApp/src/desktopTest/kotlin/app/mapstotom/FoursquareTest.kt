@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 
 /** The Parquet reader against files written by pyarrow (tools/fsq/make_test_parquet.py), and the Foursquare source. */
 class FoursquareTest {
+    init { ParquetCodecs.zstd = { b, n -> com.github.luben.zstd.Zstd.decompress(b, n) } }
     private fun res(name: String) = javaClass.getResourceAsStream("/parquet/$name")!!.readBytes()
     private val expected = Json.parse(res("expected.json").decodeToString()) as List<*>
 
@@ -16,10 +17,18 @@ class FoursquareTest {
         override fun read(offset: Long, length: Int): ByteArray { requests++; return b.copyOfRange(offset.toInt(), offset.toInt() + length) }
     }
 
-    /** Serves [files] like a web server that answers range requests. */
-    private class RangeNet(val files: Map<String, ByteArray>) : Net {
+    /**
+     * Serves [files] like a web server that answers range requests. URLs in [redirects] answer with a redirect
+     * to their target, and only when they carry [token]; the target must then be asked without it.
+     */
+    private class RangeNet(val files: Map<String, ByteArray>, val redirects: Map<String, String> = emptyMap(), val token: String? = null) : Net {
         val asked = mutableListOf<String>()
         override fun get(url: String, headers: Map<String, String>, followRedirects: Boolean, timeoutMs: Int): HttpResponse {
+            redirects[url]?.let { to ->
+                return if (headers["Authorization"] == "Bearer $token") HttpResponse(302, mapOf("Location" to to), ByteArray(0))
+                else HttpResponse(401, emptyMap(), ByteArray(0))
+            }
+            check("Authorization" !in headers) { "token sent to $url" }
             val b = files[url] ?: return HttpResponse(404, emptyMap(), ByteArray(0))
             asked += url
             val r = headers["Range"]!!.removePrefix("bytes=")
@@ -63,23 +72,23 @@ class FoursquareTest {
         val net = RangeNet(mapOf(url + "0.parquet" to res("v1-snappy-dict.parquet")))
         // Row group 2 is all ES in the fixture; the index only lists the PT ones.
         val index = FsqIndex("2025-02-06", url, mapOf("PT" to mapOf("0.parquet" to listOf(0, 1)), "ES" to mapOf("0.parquet" to listOf(1, 2))))
-        val got = fetchFoursquare(index, listOf("PT"), setOf(FsqPoiType.RESTAURANT, FsqPoiType.PHARMACY), 2020, net)
+        val got = fetchFoursquare(index, listOf("PT"), setOf(PlaceKind.RESTAURANT, PlaceKind.PHARMACY), 2020, net)
         val want = expected.map { it as Map<*, *> }.withIndex().filter { (_, e) ->
             e["country"] == "PT" && e["date_closed"] == null && (e["date_refreshed"] as String) >= "2020" && e["name"] != null
         }
-        fun kind(e: Map<*, *>) = FsqPoiType.of((e["fsq_category_labels"] as? List<*>).orEmpty())
-        assertEquals(want.count { kind(it.value) == FsqPoiType.RESTAURANT }, got.getValue(FsqPoiType.RESTAURANT).size)
-        assertEquals(want.count { kind(it.value) == FsqPoiType.PHARMACY }, got.getValue(FsqPoiType.PHARMACY).size)
-        assertTrue(got.getValue(FsqPoiType.RESTAURANT).all { it.name.endsWith("ção") && it.lat in 38.0..38.6 })
-        assertEquals(setOf(FsqPoiType.RESTAURANT, FsqPoiType.PHARMACY), got.keys)
+        fun kind(e: Map<*, *>) = PlaceKind.ofFsq((e["fsq_category_labels"] as? List<*>).orEmpty())
+        assertEquals(want.count { kind(it.value) == PlaceKind.RESTAURANT }, got.getValue(PlaceKind.RESTAURANT).size)
+        assertEquals(want.count { kind(it.value) == PlaceKind.PHARMACY }, got.getValue(PlaceKind.PHARMACY).size)
+        assertTrue(got.getValue(PlaceKind.RESTAURANT).all { it.name.endsWith("ção") && it.lat in 38.0..38.6 })
+        assertEquals(setOf(PlaceKind.RESTAURANT, PlaceKind.PHARMACY), got.keys)
     }
 
     @Test fun kindsMatchWholePathSteps() {
-        assertEquals(FsqPoiType.RESTAURANT, FsqPoiType.of(listOf("Dining and Drinking > Restaurant > Pizzeria")))
-        assertEquals(FsqPoiType.CAMPGROUND, FsqPoiType.of(listOf("Travel and Transportation > Lodging > Campground")))
-        assertEquals(FsqPoiType.LODGING, FsqPoiType.of(listOf("Travel and Transportation > Lodging > Hostel")))
-        assertEquals(null, FsqPoiType.of(listOf("Dining and Drinking > Restaurants Guide")))
-        assertEquals(null, FsqPoiType.of(listOf("Retail")))
+        assertEquals(PlaceKind.RESTAURANT, PlaceKind.ofFsq(listOf("Dining and Drinking > Restaurant > Pizzeria")))
+        assertEquals(PlaceKind.CAMPGROUND, PlaceKind.ofFsq(listOf("Travel and Transportation > Lodging > Campground")))
+        assertEquals(PlaceKind.LODGING, PlaceKind.ofFsq(listOf("Travel and Transportation > Lodging > Hostel")))
+        assertEquals(null, PlaceKind.ofFsq(listOf("Dining and Drinking > Restaurants Guide")))
+        assertEquals(null, PlaceKind.ofFsq(listOf("Retail")))
     }
 
     @Test fun bigFilesGetSkippersThatStillReadBack() {
@@ -103,5 +112,105 @@ class FoursquareTest {
         }
         assertTrue(skippers > 10)
         assertEquals(buildOv2(pts.take(SKIPPER_ABOVE)).size, pts.take(SKIPPER_ABOVE).sumOf { 14 + it.name.length })
+    }
+
+    // ------------------------------------------------------------------ Overture, Hugging Face, sharing a file
+
+    private val overtureExpected = Json.parse(res("overture-expected.json").decodeToString()) as List<*>
+    private val ptBoxes = CountryBoxes(mapOf("PT" to listOf(doubleArrayOf(-10.0, 36.0, -6.0, 43.0))))
+
+    @Test fun readsNestedOvertureColumns() {
+        for (f in listOf("overture-v1-zstd", "overture-v2-zstd")) {
+            val pf = ParquetFile(Bytes(res("$f.parquet")))
+            var row = 0
+            for (rg in pf.rowGroups.indices) {
+                val names = pf.read(rg, "names.primary"); val h = pf.read(rg, "taxonomy.hierarchy.list.element")
+                val country = pf.read(rg, "addresses.list.element.country"); val x = pf.read(rg, "bbox.xmin")
+                for (i in names.indices) {
+                    val e = overtureExpected[row++] as Map<*, *>
+                    assertEquals((e["names"] as? Map<*, *>)?.get("primary"), names[i], "$f $row name")
+                    assertEquals(((e["taxonomy"] as? Map<*, *>)?.get("hierarchy") as? List<*>).orEmpty(), h[i], "$f $row hierarchy")
+                    assertEquals((e["addresses"] as List<*>).map { (it as Map<*, *>)["country"] }, country[i], "$f $row country")
+                    assertEquals((e["bbox"] as Map<*, *>)["xmin"], x[i], "$f $row lon")
+                }
+            }
+            assertEquals(overtureExpected.size, row)
+        }
+    }
+
+    @Test fun overtureReadsOnlyTheCountrysAreaAndFilters() {
+        val base = OVERTURE_BUCKET + "release/x/theme=places/type=place/"
+        val net = RangeNet(mapOf(base + "a.parquet" to res("overture-v2-zstd.parquet")))
+        val rel = OvertureRelease("x", listOf("release/x/theme=places/type=place/a.parquet"))
+        // Row group 2 (lon 2.5…) is outside the box and isn't downloaded.
+        val got = fetchOverture(rel, listOf("PT"), ptBoxes, setOf(PlaceKind.RESTAURANT, PlaceKind.CAFE, PlaceKind.CAMPGROUND), 0.6, net)
+        val want = overtureExpected.map { it as Map<*, *> }.filter { e ->
+            val c = (e["addresses"] as List<*>).firstOrNull()?.let { (it as Map<*, *>)["country"] }
+            val lon = (e["bbox"] as Map<*, *>)["xmin"] as Double
+            (c == "PT" || (c == null && lon in -10.0..-6.0)) && e["names"] != null && (e["confidence"] as Double) >= 0.6 &&
+                (e["operating_status"] == null || e["operating_status"] == "open")
+        }
+        fun kind(e: Map<*, *>) = PlaceKind.ofOverture(((e["taxonomy"] as? Map<*, *>)?.get("hierarchy") as? List<*>).orEmpty())
+        for (k in listOf(PlaceKind.RESTAURANT, PlaceKind.CAFE, PlaceKind.CAMPGROUND))
+            assertEquals(want.count { kind(it) == k }, got.getValue(k).size, k.name)
+        assertTrue(got.values.flatten().all { it.lon < -6.0 && it.name.startsWith("Sítio") })
+    }
+
+    @Test fun huggingFaceTokenGoesOnlyToHuggingFace() {
+        val hf = "https://huggingface.co/datasets/$HF_DATASET/resolve/main/release/dt=2026-11-17/places/parquet/p0.parquet"
+        val cdn = "https://cdn.example.org/signed/p0"
+        val net = RangeNet(mapOf(cdn to res("v1-snappy-dict.parquet")), mapOf(hf to cdn), token = "hf_good")
+        val rel = FsqRelease("2026-11-17", listOf("release/dt=2026-11-17/places/parquet/p0.parquet" to 0L))
+        val got = fetchFoursquareLatest(rel, "hf_good", listOf("PT"), ptBoxes, setOf(PlaceKind.RESTAURANT), 2020, net)
+        assertTrue(got.getValue(PlaceKind.RESTAURANT).isNotEmpty())
+        assertTrue(runCatching { fetchFoursquareLatest(rel, "hf_bad", listOf("PT"), ptBoxes, setOf(PlaceKind.RESTAURANT), 2020, net) }
+            .exceptionOrNull() is AccessDenied)
+    }
+
+    @Test fun datesAsTextOrNumbers() {
+        assertEquals(2024, yearOf("2024-05-01")); assertEquals(2021, yearOf(java.time.LocalDate.of(2021, 3, 1).toEpochDay().toInt()))
+        assertEquals(2023, yearOf(java.time.Instant.parse("2023-06-01T00:00:00Z").toEpochMilli()))
+    }
+
+    private fun card(): Pair<LocalFs, String> {
+        // Under build/, not the system temp folder.
+        val dir = java.io.File("build/tmp/m2t-places/${System.nanoTime()}").apply { mkdirs() }
+        java.io.File(dir, "Map").mkdirs()
+        return LocalFs(dir) to "Map"
+    }
+
+    @Test fun aPlaceFromBothSourcesIsAddedOnce() {
+        val (fs, map) = card()
+        val a = installPlaceKind(fs, map, PlaceKind.CAFE, PlaceKind.CAFE.fsqSource, listOf(Point("Café A", 38.7, -9.1), Point("Café B", 38.8, -9.2)), "pt")
+        val b = installPlaceKind(fs, map, PlaceKind.CAFE, PlaceKind.CAFE.overtureSource, listOf(Point("Cafe A", 38.7003, -9.1), Point("Café C", 39.0, -9.0)), "pt")
+        assertEquals(2, a.added); assertEquals(1, b.added); assertEquals(1, b.nearOther)
+        val file = "Map/Cafes e pastelarias.ov2"
+        assertEquals(setOf("Café A", "Café B", "Café C"), readOv2Contents(fs.read(file)!!).entries.map { it.name }.toSet())
+        assertTrue(fs.exists("Map/Cafes e pastelarias.bmp"))
+        // Installing Foursquare again replaces only Foursquare's places.
+        installPlaceKind(fs, map, PlaceKind.CAFE, PlaceKind.CAFE.fsqSource, listOf(Point("Café D", 37.0, -8.0)), "pt")
+        assertEquals(setOf("Café C", "Café D"), readOv2Contents(fs.read(file)!!).entries.map { it.name }.toSet())
+    }
+
+    @Test fun oldFoursquareFilesMoveIntoTheSharedOne() {
+        val (fs, map) = card()
+        fs.write("Map/Bares (Foursquare).ov2", buildOv2(listOf(Ov2Entry("Bar 1", 38.0, -9.0), Ov2Entry("Bar 2", 38.1, -9.1))))
+        fs.write("Map/Bares (Foursquare).bmp", categoryIconBmp(0, 'B'))
+        val moved = moveNamedIntoTomTomCategories(fs, map)
+        assertTrue(moved.any { "Bares (Foursquare)" in it }, moved.toString())
+        assertTrue(!fs.exists("Map/Bares (Foursquare).ov2") && !fs.exists("Map/Bares (Foursquare).bmp"))
+        assertEquals(mapOf(PlaceKind.BAR.fsqSource to 2), addedSources(fs, "Map/Bares.ov2"))
+        // They count as Foursquare's, so a new Foursquare install replaces them.
+        installPlaceKind(fs, map, PlaceKind.BAR, PlaceKind.BAR.fsqSource, listOf(Point("Bar 3", 37.0, -8.0)), "pt")
+        assertEquals(listOf("Bar 3"), readOv2Contents(fs.read("Map/Bares.ov2")!!).entries.map { it.name })
+    }
+
+    @Test fun countryBoxesShipWithTheApp() {
+        val boxes = CountryBoxes.parse(java.io.File("src/commonMain/composeResources/files/country-boxes.json").readText())
+        val pt = boxes.of("PT")
+        assertTrue(pt.any { b -> -9.14 in b[0]..b[2] && 38.72 in b[1]..b[3] }) // Lisbon
+        assertTrue(pt.any { b -> -16.9 in b[0]..b[2] && 32.65 in b[1]..b[3] }) // Funchal
+        assertTrue(pt.any { b -> -25.67 in b[0]..b[2] && 37.74 in b[1]..b[3] }) // Ponta Delgada
+        assertTrue(boxes.has("es") && !boxes.has("XX"))
     }
 }

@@ -5,8 +5,8 @@ import java.nio.ByteOrder
 
 /*
  * A small Parquet reader: enough to read selected columns of selected row groups from a file on a web server,
- * a range at a time, without downloading the whole file. Handles what open place data sets use: Snappy or no
- * compression, PLAIN and dictionary values, data pages v1 and v2, optional columns and one level of lists.
+ * a range at a time, without downloading the whole file. Handles what open place data sets use: Snappy, Zstandard
+ * (through [ParquetCodecs]), gzip or no compression, PLAIN and dictionary values, data pages v1 and v2, optional columns and one level of lists.
  * Spec: github.com/apache/parquet-format.
  */
 
@@ -16,22 +16,49 @@ interface RangeSource {
     fun read(offset: Long, length: Int): ByteArray
 }
 
-/** A file on a web server that answers range requests. */
-class HttpRangeSource(private val net: Net, private val url: String) : RangeSource {
+/** The server refused the request: a login token is missing, wrong, or hasn't been given access yet. */
+class AccessDenied(message: String) : Exception(message)
+
+/**
+ * A file on a web server that answers range requests. [auth] headers (a login token) go only to [url]; when it
+ * redirects to a download server, as Hugging Face does, the parts are fetched from there without them.
+ */
+class HttpRangeSource(private val net: Net, url: String, auth: Map<String, String> = emptyMap()) : RangeSource {
     override val size: Long
+    private var target = url
+    private var headers = auth
+    private val name = url.substringAfterLast('/')
 
     init {
-        val r = net.get(url, mapOf("Range" to "bytes=-8"), timeoutMs = 60_000)
+        if (auth.isNotEmpty()) {
+            val r = net.get(url, auth + ("Range" to "bytes=-8"), followRedirects = false, timeoutMs = 60_000)
+            if (r.code == 401 || r.code == 403) throw AccessDenied("the server refused the login token for $name (HTTP ${r.code})")
+            if (r.code in 300..399) {
+                val loc = r.header("Location") ?: error("redirect without a target for $name")
+                target = java.net.URI(url).resolve(loc).toString()
+                headers = emptyMap()
+            }
+        }
+        val r = net.get(target, headers + ("Range" to "bytes=-8"), timeoutMs = 60_000)
+        if (r.code == 401 || r.code == 403) throw AccessDenied("the server refused access to $name (HTTP ${r.code})")
         require(r.code == 206) { "the server doesn't send parts of files (HTTP ${r.code})" }
         size = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: error("no file size in the server's reply")
     }
 
     override fun read(offset: Long, length: Int): ByteArray {
         if (length == 0) return ByteArray(0)
-        val r = net.get(url, mapOf("Range" to "bytes=$offset-${offset + length - 1}"), timeoutMs = 60_000)
-        require(r.code == 206 && r.body.size == length) { "download of part of ${url.substringAfterLast('/')} failed (HTTP ${r.code})" }
+        val r = net.get(target, headers + ("Range" to "bytes=$offset-${offset + length - 1}"), timeoutMs = 60_000)
+        require(r.code == 206 && r.body.size == length) { "download of part of $name failed (HTTP ${r.code})" }
         return r.body
     }
+}
+
+/**
+ * Decompressors that need a native library, set by each app at start (desktop and Android both use zstd-jni).
+ * [zstd] gets the compressed bytes and the size they unpack to.
+ */
+object ParquetCodecs {
+    @Volatile var zstd: ((ByteArray, Int) -> ByteArray)? = null
 }
 
 class ParquetColumn(
@@ -41,7 +68,11 @@ class ParquetColumn(
 
 class ParquetRowGroup(val numRows: Long, val columns: Map<String, ParquetColumn>)
 
-class ParquetFile(private val src: RangeSource) {
+/**
+ * A Parquet file read through [src]. Its footer (the file's index, often over a megabyte) is kept in [footerCache]
+ * when given, so reading the same release again doesn't download it again.
+ */
+class ParquetFile(private val src: RangeSource, footerCache: java.io.File? = null) {
     val rowGroups: List<ParquetRowGroup>
 
     init {
@@ -50,7 +81,11 @@ class ParquetFile(private val src: RangeSource) {
         require(String(tail, 4, 4, Charsets.ISO_8859_1) == "PAR1") { "not a Parquet file" }
         val len = ByteBuffer.wrap(tail).order(ByteOrder.LITTLE_ENDIAN).getInt(0)
         require(len > 0 && len <= src.size - 12) { "damaged Parquet footer" }
-        val meta = Thrift(src.read(src.size - 8 - len, len)).struct()
+        val cached = footerCache?.takeIf { it.length() == len.toLong() }?.let { runCatching { it.readBytes() }.getOrNull() }
+        val footer = cached ?: src.read(src.size - 8 - len, len).also { b ->
+            footerCache?.let { f -> runCatching { f.parentFile?.mkdirs(); f.writeBytes(b) } }
+        }
+        val meta = Thrift(footer).struct()
         val levels = schemaLevels(meta.list(2).map { it as TStruct })
         rowGroups = meta.list(4).map { rg ->
             rg as TStruct
@@ -234,6 +269,7 @@ class ParquetFile(private val src: RangeSource) {
             0 -> b
             1 -> snappy(b, size)
             2 -> java.util.zip.GZIPInputStream(b.inputStream()).use { it.readBytes() }
+            6 -> (ParquetCodecs.zstd ?: error("Zstandard isn't available in this build"))(b, size)
             else -> error("Parquet compression $codec isn't supported")
         }
 

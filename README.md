@@ -143,6 +143,23 @@ finish are stops; the rest are pass-through points the TomTom follows without an
     cameras always go in full, because TomTom has no such category to compare with. After an
     install, "Show the places left out" lists each skipped place with the TomTom entry it
     matched.
+- **From Foursquare and Overture Maps:** restaurants, cafés and bakeries, bars, hotels, supermarkets,
+  fuel stations, pharmacies, hospitals, campgrounds, viewpoints (Foursquare only), beaches, museums,
+  monuments, parking, banks and cash machines, and car repair, for the countries above. Kinds the
+  TomTom has go into its own categories (next to your own POIs, named in its language); cafés, bars
+  and supermarkets get their own files. Both sources fill the same files, and a place within 150 m
+  of one already there (yours, or from another source) is left out, so a café both know is added once.
+  Only the parts of the data covering your countries are downloaded (about 25 MB for Portugal).
+  - **Foursquare** (Open Source Places): by default the free copy of February 2025. For the newest
+    monthly copy, make a free Hugging Face account, accept Foursquare's terms on
+    [the dataset page](https://huggingface.co/datasets/foursquare/fsq-os-places) (they ask for an
+    organisation, job title, country and purpose, and may name your organisation in their
+    marketing), create a read token and paste it in the app. Closed places are left out, and
+    places nobody has confirmed since the year you choose (2020 by default).
+  - **Overture Maps:** monthly, no account. Closed places are left out, and places Overture isn't
+    sure exist (its confidence score; "Balanced" keeps 0.6 and up).
+  - The places files' indexes are kept in the app's data folder (`parquet-footers`), so a second
+    install of the same release downloads less.
 - **Your Google Maps lists:** export "Saved" and "Maps (your places)" at
   [Google Takeout](https://takeout.google.com) and open the .zip. Each list (and your starred
   places) becomes a category "Google <list>". Places saved without coordinates are looked up.
@@ -219,6 +236,9 @@ Every change keeps the replaced file (`.orig`, `.mapstotom-backup`) so it can be
 - **OSRM demo server:** only for "Follow the same roads".
 - **Valhalla** (`valhalla1.openstreetmap.de`, run by FOSSGIS): "Follow the same roads" when the route
   must avoid tolls, motorways, ferries or borders.
+- **Source.coop** (`data.source.coop`) and **Hugging Face** (`huggingface.co`, with your token only
+  when you add one): Foursquare places. **Overture Maps** (`overturemaps-us-west-2.s3.amazonaws.com`):
+  Overture places. Only byte ranges of the files are read.
 - **Overpass API (OpenStreetMap):** POI downloads. Reverse lookups on Nominatim name points
   that are only coordinates.
 - **Fuel prices:** DGEG (`precoscombustiveis.dgeg.gov.pt`, one request per district),
@@ -278,4 +298,7 @@ is shared by desktop and Android; only file pickers and USB access differ.
 - Fuel prices: open data of DGEG (Portugal), MITECO (Spain), the French Ministry of the Economy
   (prix-carburants), MIMIT (Italy, IODL 2.0), the Croatian Ministry of Economy, goriva.si (Slovenia)
   and E-Control (Austria).
+- Places: [Foursquare Open Source Places](https://opensource.foursquare.com/os-places/) (Apache 2.0)
+  and [Overture Maps](https://overturemaps.org) places (CDLA Permissive 2.0). Country areas: Natural
+  Earth (public domain). Zstandard decompression: [zstd-jni](https://github.com/luben/zstd-jni) (BSD).
 - MapsToTom does not activate or unlock maps.

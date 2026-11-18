@@ -109,6 +109,7 @@ class DesktopPlatform : Platform {
 }
 
 fun main() {
+    app.mapstotom.core.ParquetCodecs.zstd = { b, size -> com.github.luben.zstd.Zstd.decompress(b, size) }
     runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
     application {
         val platform = remember { DesktopPlatform() }
