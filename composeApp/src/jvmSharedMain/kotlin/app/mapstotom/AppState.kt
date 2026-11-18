@@ -38,7 +38,7 @@ class FuelInfo(val countries: List<String>, val sources: List<FuelSource>, val s
 /** Where on screen a job was started, so its steps, result and busy button show there. */
 object Job {
     const val DETECT = "detect"; const val SEND_INPUT = "send.input"; const val ROUTE = "send.route"; const val SEND_POIS = "send.pois"
-    const val GPS = "gps"; const val FUEL = "fuel"; const val OSM = "osm"; const val GOOGLE = "google"; const val GPI = "gpi"
+    const val GPS = "gps"; const val FUEL = "fuel"; const val OSM = "osm"; const val FSQ = "fsq"; const val GOOGLE = "google"; const val GPI = "gpi"
     const val FOLDER = "folder"; const val ON_DEVICE = "ondevice"; const val DEVICE = "device"; const val BACKUP = "backup"
 }
 
@@ -609,6 +609,46 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         gen++
         val later = if (unchecked > 0) " $unchecked places couldn't be compared today (TomTom's free daily limit); they were added anyway, so install again tomorrow to drop any duplicates." else ""
         say("Installed from OpenStreetMap: ${done.joinToString(", ")}.$later On the TomTom: Navigate to → Point of Interest.")
+    }
+
+    // ---------------------------------------------------------- Foursquare places
+    /** Leave out places not confirmed since this year. */
+    var fsqSince by mutableStateOf(platform.loadSetting("fsq.since")?.toIntOrNull() ?: FSQ_DEFAULT_SINCE)
+        private set
+    fun changeFsqSince(year: Int) { fsqSince = year; platform.saveSetting("fsq.since", year.toString()) }
+
+    fun installFoursquare(types: List<FsqPoiType>) = work("Downloading from Foursquare…", Job.FSQ) {
+        val d = requireDevice(); val map = d.mapFolder ?: error("No active map folder found on the TomTom")
+        val cc = app.mapstotom.core.parseCountries(osmCountries)
+        val index = FsqIndex.parse(Res.readBytes("files/fsq/index.json").decodeToString())
+        plan(listOf("Download places") + types.map { it.label })
+        step(0)
+        val got = fetchFoursquare(index, cc, types.toSet(), fsqSince, net) { i, n ->
+            progress(i, n, "parts")
+            if (i < n) step(0, "${i * 100 / maxOf(n, 1)}%")
+        }
+        progress = null
+        stepDetail(0, "%,d places".format(got.values.sumOf { it.size }))
+        val done = mutableListOf<String>()
+        types.forEachIndexed { i, t ->
+            step(i + 1)
+            val pts = got[t].orEmpty()
+            val cat = t.tomtomCategory
+            if (cat != null) {
+                val ci = installIntoTomTomCategory(d.fs, map, cat, t.source, pts)
+                val near = categoryNearNote(ci)
+                done += "${t.label} ${ci.added}" + near.takeIf { it.isNotEmpty() }?.let { " (${it.removePrefix(", ")})" }.orEmpty()
+                stepDetail(i + 1, "%,d added to the TomTom's own category".format(ci.added) + near)
+            } else {
+                val named = t.translated ?: error("no name for ${t.label}")
+                writePoiCategory(d.fs, map, named.nameIn(d.language), pts, categoryIconBmp(t.rgb, t.glyph))
+                done += "${t.label} ${pts.size}"
+                stepDetail(i + 1, "%,d added".format(pts.size))
+            }
+        }
+        gen++
+        needsRestart()
+        say("Installed from Foursquare: ${done.joinToString(", ")}. Places confirmed since $fsqSince, release ${index.release}. On the TomTom: Navigate to → Point of Interest.")
     }
 
     // ---------------------------------------------------------- fuel prices

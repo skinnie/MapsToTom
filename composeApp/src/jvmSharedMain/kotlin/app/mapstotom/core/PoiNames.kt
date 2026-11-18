@@ -64,6 +64,16 @@ private val OSM_NAMES: Map<OsmPoiType, TranslatedCategory> = mapOf(
 val OsmPoiType.translated: TranslatedCategory get() = OSM_NAMES.getValue(this)
 fun OsmPoiType.categoryName(lang: String): String = translated.nameIn(lang)
 
+/** Foursquare kinds the TomTom has no category for (the others go into its own categories, see TomTomCategories.kt). */
+private val FSQ_NAMES: Map<FsqPoiType, TranslatedCategory> = mapOf(
+    FsqPoiType.CAFE to listOf("Cafés and bakeries", "Cafés e pastelarias", "Cafeterías y panaderías", "Cafés et boulangeries", "Cafés und Bäckereien", "Bar e pasticcerie", "Cafés en bakkerijen"),
+    FsqPoiType.BAR to listOf("Bars", "Bares", "Bares", "Bars", "Bars", "Bar", "Bars"),
+    FsqPoiType.SUPERMARKET to listOf("Supermarkets", "Supermercados", "Supermercados", "Supermarchés", "Supermärkte", "Supermercati", "Supermarkten"),
+).mapValues { (_, n) -> TranslatedCategory("Foursquare", n) }
+
+/** The named category for a Foursquare kind without a TomTom category, or null. */
+val FsqPoiType.translated: TranslatedCategory? get() = FSQ_NAMES[this]
+
 /** iOverlander's categories (its .gpi files name them in English), keyed by that English name. */
 private val IOVERLANDER: Map<String, TranslatedCategory> = listOf(
     listOf("Established Campground", "Parque de campismo", "Camping establecido", "Camping", "Campingplatz", "Campeggio", "Camping"),
@@ -92,7 +102,7 @@ fun gpiTranslated(fileTitle: String?, category: String): TranslatedCategory? =
     if (fileTitle.orEmpty().contains("ioverlander", ignoreCase = true)) IOVERLANDER[category.trim().lowercase()] else null
 
 /** Every category the app renames with the language. */
-val TRANSLATED_CATEGORIES: List<TranslatedCategory> get() = OSM_NAMES.values + IOVERLANDER.values
+val TRANSLATED_CATEGORIES: List<TranslatedCategory> get() = OSM_NAMES.values + IOVERLANDER.values + FSQ_NAMES.values
 
 /** "Água potável" → "Agua potavel", "Strände" → "Straende". */
 internal fun ascii(s: String): String {

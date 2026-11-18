@@ -55,13 +55,35 @@ fun parseOv2(data: ByteArray): List<Ov2Entry>? {
     return if (c.entries.isEmpty() && (!c.complete || c.other.isNotEmpty())) null else c.entries
 }
 
-/** A plain .ov2 file: type-2 records, extended records and unknown ones kept as they were. */
+/**
+ * A plain .ov2 file: type-2 records, extended records and unknown ones kept as they were. Files with more than
+ * [SKIPPER_ABOVE] places get skipper records (type 1, an area and the size of the places inside it) so the TomTom
+ * can pass over areas it isn't showing instead of reading every place.
+ */
 fun buildOv2(entries: List<Ov2Entry>, other: List<ByteArray> = emptyList(), heads: List<ByteArray> = emptyList()): ByteArray {
     val out = java.io.ByteArrayOutputStream()
     for (h in heads) out.write(h)
-    for (e in entries) out.write(e.raw ?: ov2Record(e.toPoint()))
+    val records = entries.map { it to (it.raw ?: ov2Record(it.toPoint())) }
+    if (records.size > SKIPPER_ABOVE) writeSkipped(out, records) else for ((_, r) in records) out.write(r)
     for (o in other) out.write(o)
     return out.toByteArray()
+}
+
+const val SKIPPER_ABOVE = 200
+private const val SKIPPER_LEAF = 64
+
+/** Splits [records] in halves along the longer side until each block holds at most [SKIPPER_LEAF] places. */
+private fun writeSkipped(out: java.io.ByteArrayOutputStream, records: List<Pair<Ov2Entry, ByteArray>>) {
+    if (records.size <= SKIPPER_LEAF) { for ((_, r) in records) out.write(r); return }
+    val lats = records.map { Math.rint(it.first.lat * 1e5).toInt() }; val lons = records.map { Math.rint(it.first.lon * 1e5).toInt() }
+    val size = 21 + records.sumOf { it.second.size }
+    // East, north, west, south, in 1e-5 degrees.
+    out.write(ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN).put(1).putInt(size)
+        .putInt(lons.max()).putInt(lats.max()).putInt(lons.min()).putInt(lats.min()).array())
+    val byLon = lons.max() - lons.min() > lats.max() - lats.min()
+    val sorted = records.sortedBy { if (byLon) it.first.lon else it.first.lat }
+    writeSkipped(out, sorted.subList(0, sorted.size / 2))
+    writeSkipped(out, sorted.subList(sorted.size / 2, sorted.size))
 }
 
 /**
@@ -86,9 +108,7 @@ fun sameEntry(a: Ov2Entry, b: Ov2Entry) = a.name == b.name && Math.rint(a.lat * 
 /** Replace a whole category with these places, plus its icon and optional warning sound (all in the map folder). */
 fun writePoiCategory(fs: DeviceFs, mapDir: String, category: String, points: List<Point>, icon: ByteArray, sound: ByteArray? = null): String {
     val base = join(mapDir, safeFilename(category))
-    val out = java.io.ByteArrayOutputStream()
-    points.forEach { out.write(ov2Record(it)) }
-    fs.write("$base.ov2", out.toByteArray())
+    fs.write("$base.ov2", buildOv2(points.map { Ov2Entry(it.name, it.lat, it.lon) }))
     fs.write("$base.bmp", icon)
     if (sound != null) fs.write("$base.ogg", sound)
     return "$base.ov2"

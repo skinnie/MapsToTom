@@ -49,6 +49,8 @@ private fun AddPois(state: AppState) {
     Spacer(Modifier.height(Space.xxl))
     OsmSection(state)
     Spacer(Modifier.height(Space.xxl))
+    FoursquareSection(state)
+    Spacer(Modifier.height(Space.xxl))
     GoogleSection(state)
     Spacer(Modifier.height(Space.xxl))
     GpiSection(state)
@@ -182,6 +184,55 @@ private fun OsmSection(state: AppState) {
     Text("Data © OpenStreetMap contributors (ODbL). A whole country takes a minute or two, longer the first time it is compared with the TomTom's map.",
         style = MaterialTheme.typography.bodySmall, color = t.textMuted)
     SkippedList(state)
+}
+
+// ------------------------------------------------------------------ Foursquare
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun FoursquareSection(state: AppState) {
+    val t = LocalTokens.current
+    val idle = state.busy == null
+    val chosen = remember { mutableStateListOf(FsqPoiType.RESTAURANT) }
+    SectionTitle("From Foursquare")
+    Prose("Restaurants, cafés, hotels, museums and more from Foursquare's open places. Kinds the TomTom already has " +
+        "go into its own categories, next to your own POIs; places near ones already there are left out.")
+    Spacer(Modifier.height(Space.md))
+    Panel(padding = PaddingValues(horizontal = Space.sm, vertical = Space.xs)) {
+        FsqPoiType.entries.forEachIndexed { i, type ->
+            if (i > 0) Hairline()
+            CheckRow(type in chosen, { on -> if (on) chosen.add(type) else chosen.remove(type) }, Modifier.fillMaxWidth()) {
+                Text(type.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = t.text)
+                if (type.tomtomCategory == null) Text("own category", style = MaterialTheme.typography.bodySmall, color = t.textMuted,
+                    modifier = Modifier.padding(end = Space.xs))
+            }
+        }
+    }
+    Spacer(Modifier.height(Space.md))
+    Text("Countries: ${state.osmCountries.ifBlank { "set them under OpenStreetMap above" }}", style = MaterialTheme.typography.bodyMedium, color = t.text)
+    Spacer(Modifier.height(Space.sm))
+    Text("Only places confirmed since", style = MaterialTheme.typography.labelLarge, color = t.textMuted)
+    Spacer(Modifier.height(Space.xs))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+        listOf(2016, 2018, 2020, 2022, 2024).forEach { y ->
+            FilterChip(
+                selected = state.fsqSince == y, onClick = { state.changeFsqSince(y) }, enabled = idle,
+                label = { Text(y.toString()) }, shape = Radius.pill,
+                leadingIcon = if (state.fsqSince == y) ({ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }) else null,
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = t.actionSoft, selectedLabelColor = t.onActionSoft, labelColor = t.textMuted),
+            )
+        }
+    }
+    Spacer(Modifier.height(Space.md))
+    val countryProblem = app.mapstotom.core.countriesProblem(state.osmCountries)
+    PrimaryButton(if (chosen.isEmpty()) "Install" else "Install ${chosen.size}", { state.installFoursquare(chosen.toList()) },
+        enabled = idle && state.device != null && chosen.isNotEmpty() && countryProblem == null && state.osmCountries.isNotBlank(),
+        icon = Icons.Filled.Download, busy = state.running(Job.FSQ), busyText = "Installing…")
+    JobFeedback(state, Job.FSQ)
+    Spacer(Modifier.height(Space.xs))
+    Text("Data: Foursquare Open Source Places (Apache 2.0), release of February 2025. Closed places are always left out; " +
+        "older years add places nobody has confirmed in a long time. A country takes a minute or two.",
+        style = MaterialTheme.typography.bodySmall, color = t.textMuted)
 }
 
 /** The "only what the map lacks" switch, and the TomTom key it needs. */

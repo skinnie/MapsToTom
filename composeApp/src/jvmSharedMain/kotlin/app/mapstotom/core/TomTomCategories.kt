@@ -24,6 +24,14 @@ object TomTomCategory {
     const val SWIMMING_POOL = 7338
     const val CAMPGROUND = 7360
     const val BEACH = 9357
+    const val CAR_REPAIR = 7310
+    const val HOTEL = 7314
+    const val RESTAURANT = 7315
+    const val MUSEUM = 7317
+    const val HOSPITAL = 7321
+    const val OPEN_PARKING = 7369
+    const val TOURIST_ATTRACTION = 7376
+    const val CASH_DISPENSER = 7397
 }
 
 /** Places this close count as the same one. */
@@ -58,6 +66,9 @@ private val CATEGORY_NAMES = mapOf(
     TomTomCategory.PETROL_STATION to "Petrol stations", TomTomCategory.PHARMACY to "Pharmacies",
     TomTomCategory.SCENIC_VIEW to "Scenic views", TomTomCategory.SWIMMING_POOL to "Swimming pools",
     TomTomCategory.CAMPGROUND to "Campgrounds", TomTomCategory.BEACH to "Beaches",
+    TomTomCategory.CAR_REPAIR to "Car repair", TomTomCategory.HOTEL to "Hotels", TomTomCategory.RESTAURANT to "Restaurants",
+    TomTomCategory.MUSEUM to "Museums", TomTomCategory.HOSPITAL to "Hospitals", TomTomCategory.OPEN_PARKING to "Parking",
+    TomTomCategory.TOURIST_ATTRACTION to "Tourist attractions", TomTomCategory.CASH_DISPENSER to "Cash machines",
 )
 
 /** "Swimming pools (TomTom category)" for a file named PA7338, or null when [fileBase] isn't a PA file. */

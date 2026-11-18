@@ -4,6 +4,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
+import app.mapstotom.core.translated
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -86,5 +87,40 @@ class ApplyNamesRun {
         app.mapstotom.core.renameTranslatedCategories(fs, map, lang).forEach { println("APPLY: renamed $it") }
         println("APPLY: old start-up rename removed: ${app.mapstotom.core.removeBootRename(fs)}")
         app.mapstotom.core.moveNamedIntoTomTomCategories(fs, map).forEach { println("APPLY: moved $it") }
+    }
+}
+
+/**
+ * The Foursquare install for a card on the PC, with the app's own code. WRITES TO THE CARD.
+ * -Pm2t.fsqCard=<card root> [-Pm2t.fsqCountries=PT] [-Pm2t.fsqSince=2020] [-Pm2t.fsqTypes=RESTAURANT,CAFE]
+ */
+class FoursquareInstallRun {
+    @Test fun run() {
+        val root = System.getProperty("m2t.fsqCard")?.let(::File) ?: return
+        val fs = app.mapstotom.core.LocalFs(root)
+        val map = app.mapstotom.core.findMapFolder(fs) ?: error("no map folder")
+        val lang = app.mapstotom.core.tomtomLanguage(app.mapstotom.core.readBif(fs))
+        val index = app.mapstotom.core.FsqIndex.parse(File("src/commonMain/composeResources/files/fsq/index.json").readText())
+        val countries = (System.getProperty("m2t.fsqCountries") ?: "PT").split(',').map { it.trim() }
+        val since = System.getProperty("m2t.fsqSince")?.toInt() ?: app.mapstotom.core.FSQ_DEFAULT_SINCE
+        val types = System.getProperty("m2t.fsqTypes")?.split(',')?.map { app.mapstotom.core.FsqPoiType.valueOf(it.trim()) }
+            ?: app.mapstotom.core.FsqPoiType.entries
+        val t0 = System.currentTimeMillis()
+        val got = app.mapstotom.core.fetchFoursquare(index, countries, types.toSet(), since, app.mapstotom.core.RealNet()) { i, n ->
+            if (i % 10 == 0) println("FSQ: part $i of $n")
+        }
+        println("FSQ: downloaded in ${(System.currentTimeMillis() - t0) / 1000} s")
+        for (t in types) {
+            val pts = got[t].orEmpty()
+            val cat = t.tomtomCategory
+            if (cat != null) {
+                val r = app.mapstotom.core.installIntoTomTomCategory(fs, map, cat, t.source, pts)
+                println("FSQ: ${t.label}: ${pts.size} found, ${r.added} added to PA$cat${app.mapstotom.core.categoryNearNote(r)}, ${r.yours} of yours kept")
+            } else {
+                val name = t.translated!!.nameIn(lang)
+                app.mapstotom.core.writePoiCategory(fs, map, name, pts, app.mapstotom.core.categoryIconBmp(t.rgb, t.glyph))
+                println("FSQ: ${t.label}: ${pts.size} written as $name")
+            }
+        }
     }
 }
