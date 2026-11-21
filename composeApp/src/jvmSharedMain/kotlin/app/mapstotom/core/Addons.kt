@@ -152,6 +152,7 @@ fun setFuelPrices(fs: DeviceFs, mapDir: String, on: Boolean): Int {
             n++
         }
     }
+    syncPetrolCategory(fs, mapDir)
     return n
 }
 

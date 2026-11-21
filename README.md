@@ -105,6 +105,10 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
 - **glgps 9.541**: Broadcom units are fixed by NavCore 9.541's GPS driver
   (Broadcom GLL 2.16.201). MapsToTom can't include it; choose it from your own NavCore files and
   MapsToTom checks it before installing. The old one is kept as `bin/glgps.orig`.
+- **Fuel prices and petrol POIs**: NavCore keeps a fuel price set in its petrol station category, and a
+  `PA7311.ov2` file there makes the prices disappear ("no information available"). While a fuel set
+  is on, MapsToTom keeps that category's places aside as `PA7311.ov2.mapstotom-parked` and puts them
+  back if the fuel set is switched off.
 - **Clock fix** (Broadcom units): old TomToms lose their internal clock, and this GPS engine
   starts from it. With QuickGPSFix it then looks for satellites in the wrong place and never
   gets a fix (deleting QuickGPSFix "fixes" it). The clock fix tells the engine to take the time

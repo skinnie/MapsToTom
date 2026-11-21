@@ -34,6 +34,7 @@ class RootUsb(private val ctx: Context) {
             r == null -> "No root access. In KernelSU, open Superuser and allow MapsToTom."
             isMounted() && hasBif() -> null
             "NODISK" in r -> "No USB drive found. Plug the TomTom in with an OTG adapter and choose \"Connect to computer\" on it."
+            "HELD" in r -> "Android is still using this drive, so MapsToTom can't open it. Unplug it and plug it in again."
             else -> "A USB drive is connected but it isn't a TomTom, or it couldn't be mounted."
         }
         return if (note == null) dir else null
@@ -72,21 +73,34 @@ class RootUsb(private val ctx: Context) {
             if grep -q " ${'$'}DIR " /proc/mounts; then umount "${'$'}DIR" 2>/dev/null || umount -l "${'$'}DIR"; fi
             CTX=${'$'}(ls -Zd "${'$'}DIR" | awk '{print ${'$'}1}')
             BASE="uid=${'$'}U,gid=${'$'}U,fmask=0117,dmask=0007"
-            found=0
+            found=0; held=0
+            # Android 14 mounts partitionless FAT itself. A second mount would share its superblock and keep its owner,
+            # so the app couldn't read it: ask vold to let go first.
+            release() {
+              dev=${'$'}(cat /sys/block/${'$'}1/dev); maj=${'$'}{dev%:*}; min=${'$'}{dev#*:}; next=${'$'}((min + 1))
+              grep -Eq "public:${'$'}maj,(${'$'}min|${'$'}next) " /proc/1/mounts || return 0
+              vdc volume unmount "public:${'$'}maj,${'$'}min" >/dev/null 2>&1
+              vdc volume unmount "public:${'$'}maj,${'$'}next" >/dev/null 2>&1
+              i=0
+              while [ ${'$'}i -lt 40 ] && grep -Eq "public:${'$'}maj,(${'$'}min|${'$'}next) " /proc/1/mounts; do sleep 0.25; i=${'$'}((i + 1)); done
+            }
             for d in /sys/block/sd*; do
               [ -e "${'$'}d" ] || continue
               found=1; n=${'$'}{d##*/}
+              release "${'$'}n"
               # whole disk first (TomTom layout), then the first partition
               for p in /dev/block/${'$'}n /dev/block/${'$'}{n}1; do
                 [ -b "${'$'}p" ] || continue
                 for o in "${'$'}BASE,shortname=mixed,utf8,flush,context=\"${'$'}CTX\"" "${'$'}BASE,context=\"${'$'}CTX\"" "${'$'}BASE"; do
                   if mount -t vfat -o "${'$'}o" "${'$'}p" "${'$'}DIR" 2>/dev/null; then
+                    if [ "${'$'}(stat -c %u "${'$'}DIR")" != "${'$'}U" ]; then umount "${'$'}DIR"; held=1; break; fi
                     if ls "${'$'}DIR" | grep -qi '^ttgo.bif${'$'}'; then echo "OK ${'$'}p"; exit 0; fi
                     umount "${'$'}DIR"; break
                   fi
                 done
               done
             done
+            [ ${'$'}held = 1 ] && { echo HELD; exit 3; }
             [ ${'$'}found = 1 ] && echo NOTTOMTOM || echo NODISK
             exit 3
         """.trimIndent()

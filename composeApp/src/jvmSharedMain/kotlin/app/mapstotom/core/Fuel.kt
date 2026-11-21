@@ -642,5 +642,6 @@ fun installFuelPrices(fs: DeviceFs, mapDir: String, stations: List<FuelStation>,
     val setId = fuelSetId(mapDir)
     fs.write(ov2, buildFuelOv2(rows, setId))
     fs.write(join(mapDir, "$FUEL_SET_NAME.fpf"), buildFpf(type, rows.map { it.prices[type.code] ?: 0 }, fuelArea(rows), time))
+    syncPetrolCategory(fs, mapDir)
     return ov2
 }

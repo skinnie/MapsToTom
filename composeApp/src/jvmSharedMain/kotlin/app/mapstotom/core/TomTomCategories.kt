@@ -84,8 +84,51 @@ class CategoryInstall(val file: String, val added: Int, val nearYours: Int, val 
  * Puts [points] from [source] into the TomTom's category [id]: the places [source] added before are replaced,
  * the user's own and other sources' stay. New places close to one of those are left out.
  */
-fun installIntoTomTomCategory(fs: DeviceFs, mapDir: String, id: Int, source: String, points: List<Point>): CategoryInstall =
-    installIntoCategoryFile(fs, tomtomCategoryFile(mapDir, id), source, points)
+fun installIntoTomTomCategory(fs: DeviceFs, mapDir: String, id: Int, source: String, points: List<Point>): CategoryInstall {
+    syncPetrolCategory(fs, mapDir)
+    return installIntoCategoryFile(fs, categoryFileInUse(fs, mapDir, id), source, points)
+}
+
+/** Keeps the petrol category's places while it is set aside. The TomTom ignores files with this ending. */
+const val PETROL_PARKED = ".mapstotom-parked"
+
+/** A fuel price set NavCore would load: a fuel .ov2 with its .fpf beside it. Reads only those few files. */
+fun hasActiveFuelSet(fs: DeviceFs, mapDir: String): Boolean {
+    val names = fs.list(mapDir)
+    return names.filter { it.endsWith(".fpf", ignoreCase = true) }.any { fpf ->
+        val ov2 = names.firstOrNull { it.equals(fpf.dropLast(4) + ".ov2", ignoreCase = true) } ?: return@any false
+        fs.read(join(mapDir, ov2))?.let(::isFuelOv2) == true
+    }
+}
+
+private fun categoryFileInUse(fs: DeviceFs, mapDir: String, id: Int): String {
+    val path = tomtomCategoryFile(mapDir, id)
+    return if (id == TomTomCategory.PETROL_STATION && hasActiveFuelSet(fs, mapDir)) path + PETROL_PARKED else path
+}
+
+/**
+ * NavCore files a fuel price set under the petrol station category, and a PA7311.ov2 there makes its prices disappear
+ * ("no information available", seen on a ONE v4 with NavCore 9.541). So while a fuel set is active the category's own
+ * file is set aside, with its list of added places, and it comes back when the fuel set is switched off or removed.
+ */
+fun syncPetrolCategory(fs: DeviceFs, mapDir: String) {
+    val live = tomtomCategoryFile(mapDir, TomTomCategory.PETROL_STATION)
+    val parked = live + PETROL_PARKED
+    fun move(from: String, to: String) {
+        if (fs.exists(from)) check(fs.rename(from, nameOf(to))) { "Couldn't rename ${nameOf(from)}" }
+    }
+    if (hasActiveFuelSet(fs, mapDir)) {
+        if (!fs.exists(live)) return
+        // Never overwrite places already set aside.
+        var target = parked; var n = 2
+        while (fs.exists(target)) target = "$parked-${n++}"
+        move(listFile(live), listFile(target))
+        move(live, target)
+    } else if (fs.exists(parked) && !fs.exists(live)) {
+        move(listFile(parked), listFile(live))
+        move(parked, live)
+    }
+}
 
 /** Like [installIntoTomTomCategory], for any POI file [path] that keeps a list of what each source added. */
 fun installIntoCategoryFile(fs: DeviceFs, path: String, source: String, points: List<Point>): CategoryInstall {
@@ -122,12 +165,14 @@ fun installIntoCategoryFile(fs: DeviceFs, path: String, source: String, points: 
 
 /** ", 2 next to your own POIs, 5 already added from another source" (empty when nothing was left out). */
 fun categoryNearNote(r: CategoryInstall): String =
+    (if (r.file.endsWith(PETROL_PARKED)) ", kept aside while the fuel price set is on" else "") +
     (if (r.nearYours > 0) ", %,d next to your own POIs".format(r.nearYours) else "") +
         (if (r.nearOther > 0) ", %,d already added from another source".format(r.nearOther) else "")
 
 /** Takes [source]'s places out of category [id] again (the user's own stay). Returns how many were removed. */
 fun removeFromTomTomCategory(fs: DeviceFs, mapDir: String, id: Int, source: String): Int {
-    val path = tomtomCategoryFile(mapDir, id)
+    syncPetrolCategory(fs, mapDir)
+    val path = categoryFileInUse(fs, mapDir, id)
     val before = fs.read(path)?.let(::readOv2Contents)?.entries?.size ?: return 0
     installIntoTomTomCategory(fs, mapDir, id, source, emptyList())
     return before - (fs.read(path)?.let(::readOv2Contents)?.entries?.size ?: 0)

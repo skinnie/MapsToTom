@@ -81,4 +81,51 @@ class TomTomCategoryTest {
         assertEquals("Swimming pools (TomTom category)", tomtomCategoryLabel("PA7338"))
         assertNull(tomtomCategoryLabel("Piscinas (OSM)"))
     }
+
+    private fun fuelCard(name: String): LocalFs {
+        val dir = java.io.File("build/tmp/m2t-petrol/$name").apply { deleteRecursively(); mkdirs() }
+        return LocalFs(dir).also { it.mkdirs("Map") }
+    }
+    private val station = FuelStation("PT:1", 38.7, -9.1, "Station", mapOf(1 to 180))
+    private val petrol = listOf(Point("Galp", 39.1, -8.5))
+
+    @Test fun petrolPlacesNeverSitBesideAFuelPriceSet() {
+        val fs = fuelCard("beside")
+        installIntoTomTomCategory(fs, "Map", TomTomCategory.PETROL_STATION, "Overture FUEL", petrol)
+        assertTrue(fs.exists("Map/PA7311.ov2"))
+        installFuelPrices(fs, "Map", listOf(station), FuelType.DIESEL)
+        assertFalse(fs.exists("Map/PA7311.ov2"), "a fuel set hides its prices behind this file")
+        assertTrue(fs.exists("Map/PA7311.ov2$PETROL_PARKED"))
+        val r = installIntoTomTomCategory(fs, "Map", TomTomCategory.PETROL_STATION, "Foursquare FUEL", listOf(Point("BP", 40.0, -8.0)))
+        assertFalse(fs.exists("Map/PA7311.ov2"))
+        assertTrue("kept aside" in categoryNearNote(r))
+    }
+
+    @Test fun petrolPlacesComeBackWhenFuelPricesGoOff() {
+        val fs = fuelCard("back")
+        installIntoTomTomCategory(fs, "Map", TomTomCategory.PETROL_STATION, "Overture FUEL", petrol)
+        installFuelPrices(fs, "Map", listOf(station), FuelType.DIESEL)
+        assertEquals(1, setFuelPrices(fs, "Map", false))
+        assertTrue(fs.exists("Map/PA7311.ov2")); assertFalse(fs.exists("Map/PA7311.ov2$PETROL_PARKED"))
+        assertEquals(1, readOv2(fs.read("Map/PA7311.ov2")!!).size)
+        assertEquals(1, setFuelPrices(fs, "Map", true))
+        assertFalse(fs.exists("Map/PA7311.ov2"))
+    }
+
+    @Test fun neverOverwritesPlacesAlreadySetAside() {
+        val fs = fuelCard("twice")
+        installFuelPrices(fs, "Map", listOf(station), FuelType.DIESEL)
+        fs.write("Map/PA7311.ov2$PETROL_PARKED", byteArrayOf(1))
+        fs.write("Map/PA7311.ov2", byteArrayOf(2))
+        syncPetrolCategory(fs, "Map")
+        assertContentEquals(byteArrayOf(1), fs.read("Map/PA7311.ov2$PETROL_PARKED"))
+        assertContentEquals(byteArrayOf(2), fs.read("Map/PA7311.ov2$PETROL_PARKED-2"))
+    }
+
+    @Test fun otherCategoriesAreNotTouched() {
+        val fs = fuelCard("other")
+        installFuelPrices(fs, "Map", listOf(station), FuelType.DIESEL)
+        installIntoTomTomCategory(fs, "Map", TomTomCategory.RESTAURANT, "Overture RESTAURANT", petrol)
+        assertTrue(fs.exists("Map/PA7315.ov2"))
+    }
 }

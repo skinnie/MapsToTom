@@ -204,6 +204,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         val renamed = d.mapFolder?.let { m -> runCatching { renameTranslatedCategories(fs, m, d.language) }.getOrNull() }.orEmpty()
         val unhooked = runCatching { removeBootRename(fs) }.getOrNull() == true
         // Places of a kind the TomTom has (pools, campsites…) now go in its own categories, which it translates itself.
+        d.mapFolder?.let { m -> runCatching { syncPetrolCategory(d.fs, m) } }
         val moved = d.mapFolder?.let { m -> runCatching { moveNamedIntoTomTomCategories(fs, m) }.getOrNull() }.orEmpty()
         gen++
         say("Connected: ${d.model}." + (if (renamed.isEmpty()) "" else
