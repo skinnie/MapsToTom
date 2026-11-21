@@ -126,3 +126,19 @@ fun findTomTomRoots(): List<File> {
     }
     return cands.filter { runCatching { it.isDirectory && isTomTomRoot(LocalFs(it)) }.getOrDefault(false) }.distinct()
 }
+
+/**
+ * Copies those of [paths] that exist from [fs] to [folder] on [target], at the same relative paths, so the normal
+ * Restore can put them back. Returns how many were copied.
+ */
+fun backupFiles(fs: DeviceFs, target: DeviceFs, folder: String, paths: List<String>, note: String): Int {
+    var n = 0
+    for (p in paths.distinct()) {
+        val data = fs.read(p) ?: continue
+        target.write("$folder/$p", data)
+        check(target.read("$folder/$p")?.contentEquals(data) == true) { "The backup of $p doesn't match" }
+        n++
+    }
+    target.write("$folder/MapsToTom-backup.txt", "$note\n$n files\n".toByteArray())
+    return n
+}

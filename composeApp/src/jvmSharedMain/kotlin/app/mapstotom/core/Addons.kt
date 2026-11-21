@@ -170,11 +170,16 @@ class Addons(
     /** Null: not offered on this TomTom. */
     val gpsLog: Boolean?,
     val swapBytes: Long?,
+    val navCore: NavCoreState,
+    /** The original NavCore is on the card, so the patch can be removed. */
+    val navCoreKept: Boolean,
+    /** Null: the program isn't on the card to read. */
+    val navCoreLiveCode: Boolean?,
 ) {
-    val any get() = setConfig != null || fuelOn.isNotEmpty() || fuelOff.isNotEmpty() || gpsLog != null
+    val any get() = setConfig != null || navCore != NavCoreState.MISSING || fuelOn.isNotEmpty() || fuelOff.isNotEmpty() || gpsLog != null
 }
 
-fun readAddons(fs: DeviceFs, mapDir: String?, chip: Chip): Addons {
+fun readAddons(fs: DeviceFs, mapDir: String?, chip: Chip, navCorePatch: NavCorePatch? = null): Addons {
     val sc = readSetConfig(fs)
     val last = if (sc != null) readLastStart(fs) else null
     fun fuel(ov2: String, fpf: String?): FuelAddon {
@@ -193,5 +198,6 @@ fun readAddons(fs: DeviceFs, mapDir: String?, chip: Chip): Addons {
     val logOn = fs.exists("gl/debug-gltt")
     val logOffered = logOn || (chip == Chip.GL1 && ttconvState(fs) == TtconvState.INSTALLED_IMPROVED)
     return Addons(sc, fs.exists(CAR_LINK_MARKER), last, sc != null && waitsForRestart(fs, sc, last), on, off,
-        if (logOffered) logOn else null, if (sc != null && fs.exists("swap")) fs.size("swap") else null)
+        if (logOffered) logOn else null, if (sc != null && fs.exists("swap")) fs.size("swap") else null,
+        navCoreState(fs, navCorePatch), fs.exists(NAVCORE_BACKUP), navCoreHasLiveCode(fs))
 }

@@ -9,3 +9,6 @@ local.properties
 composeApp/build/
 # The global ~/.gitignore drops *.jar; the Gradle wrapper must be in the repo or clones cannot build.
 !gradle/wrapper/gradle-wrapper.jar
+
+# TTconv ships this library (GPL-3.0); a global *.so ignore must not drop it
+!composeApp/src/commonMain/composeResources/files/ttconv/fixdate/glttconv.so

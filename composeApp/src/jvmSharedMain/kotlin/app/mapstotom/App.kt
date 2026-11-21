@@ -34,6 +34,7 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
         var tab by remember { mutableStateOf(startTab) }
         val tabs = remember { Tab.entries.filter { it != Tab.CAR || state.platform.carLink != null } }
         LaunchedEffect(Unit) { if (state.device == null) state.detect() }
+        state.riskyChange?.let { RiskyChangeDialog(it.title, it.what, state::backupThenRisky, state::continueRisky, state::dismissRisky) }
         BoxWithConstraints(Modifier.fillMaxSize().background(t.page)) {
             val wide = maxWidth >= 720.dp
             val gutter = if (wide) Space.xxl else Space.lg

@@ -8,7 +8,7 @@ import java.time.Instant
 enum class Chip(val label: String, val quickFixProvider: String?, val dateFix: String) {
     GL1("Global Locate GL1 (Hammerhead)", "globalLocate", "TTconv"),
     GL2("Broadcom BCM4750 / GL2 (Barracuda)", "globalLocate", "glgps 9.541 driver"),
-    SIRF("SiRFstarIII", "SIRFStarIII", "SiRF firmware 3.2.5 / 3.6.0"),
+    SIRF("SiRFstarIII", "SIRFStarIII", "NavCore 9.541 SE"),
     AR1520("Atheros AR1520", null, "TTconv"),
     UNKNOWN("Unknown", null, "none known");
 }
@@ -251,7 +251,7 @@ fun removeClockFix(fs: DeviceFs) { if (fs.exists(CLOCK_FIX_PATH)) fs.delete(CLOC
 
 // ------------------------------------------------------------------ SiRF
 
-/** SiRFstarIII GSW 3.2.4 firmware fails after the 2019 rollover; 3.2.5 / 3.6.0 work. */
+/** GSW 3.2.4: the chip is fine, but older NavCores misread its date since 2019 (9.541 SE is reported to fix it; so is firmware 3.2.5 / 3.6.0). */
 fun sirfNeedsUpdate(firmware: String) = Regex("""GSW3\.2\.[0-4]""", RegexOption.IGNORE_CASE).containsMatchIn(firmware)
 
 // ------------------------------------------------------------------ power-off ("suicide")

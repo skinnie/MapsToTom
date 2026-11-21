@@ -260,3 +260,17 @@ class FuelTest {
         assertEquals(mapOf(8 to 99, 1 to 160), out.first().prices)
     }
 }
+
+class BackupFilesTest {
+    @kotlin.test.Test fun copiesOnlyWhatExistsSoRestoreCanPutItBack() {
+        val base = java.io.File("build/tmp/m2t-backup").apply { deleteRecursively(); mkdirs() }
+        val card = app.mapstotom.core.LocalFs(java.io.File(base, "card").apply { mkdirs() })
+        val out = app.mapstotom.core.LocalFs(java.io.File(base, "out").apply { mkdirs() })
+        card.write("bin/glgps", byteArrayOf(1, 2, 3))
+        val n = app.mapstotom.core.backupFiles(card, out, "b", listOf("bin/glgps", "bin/glgps", "not/there"), "note")
+        kotlin.test.assertEquals(1, n)
+        kotlin.test.assertContentEquals(byteArrayOf(1, 2, 3), out.read("b/bin/glgps"))
+        kotlin.test.assertTrue(out.exists("b/MapsToTom-backup.txt"))
+        kotlin.test.assertFalse(out.exists("b/not/there"))
+    }
+}

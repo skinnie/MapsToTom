@@ -47,10 +47,12 @@ class LiveServer(
     private val store: LiveStore = MemoryLiveStore(),
     net: Net? = null,
     private val log: (String) -> Unit = {},
+    private val outbox: app.mapstotom.link.CarOutbox? = null,
 ) : LocalService {
     /** Convenience: real Open-Meteo weather and TomTom traffic with the user's key. */
-    constructor(net: Net, tomtomKey: () -> String?, fuel: FuelPriceSets, store: LiveStore, log: (String) -> Unit = {}) :
-        this(LiveConfig(), TomTomSource(tomtomKey, net, log = log), Weather.openMeteo(net), fuel, store, net, log)
+    constructor(net: Net, tomtomKey: () -> String?, fuel: FuelPriceSets, store: LiveStore, log: (String) -> Unit = {},
+                outbox: app.mapstotom.link.CarOutbox? = null) :
+        this(LiveConfig(), TomTomSource(tomtomKey, net, log = log), Weather.openMeteo(net), fuel, store, net, log, outbox)
 
     class Reply(val code: Int, val type: String, val body: ByteArray)
 
@@ -83,6 +85,11 @@ class LiveServer(
                 log("hercules: bad request ${e.message}"); Hermes.packBody(HStruct(4 to 9L, 5 to "bad request"))
             }
             return Reply(200, "application/octet-stream", out)
+        }
+        if (p == "/m2t/next") return Reply(200, "application/octet-stream", app.mapstotom.link.CarOutbox.frame(outbox?.next()))
+        if (p == "/m2t/done") {
+            query.split('&').firstOrNull { it.startsWith("id=") }?.substring(3)?.toLongOrNull()?.let { outbox?.done(it); log("car link: file $it saved on the TomTom") }
+            return text("OK".toByteArray())
         }
         return text(when (p) {
             "/services/directory.php" -> (config.base + "/h204").toByteArray()

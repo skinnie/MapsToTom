@@ -23,7 +23,54 @@ private class GpsView(
     val clockLooksWrong: Boolean,
     /** GL1 GPS program version, when it is one with the 2019 week bug. */
     val weekBugEngine: String?,
+    /** The orbit table built into a supported GL1 GPS program. */
+    val almanac: AlmanacInfo?,
 )
+
+@Composable
+private fun GpsGroupTitle(title: String, detail: String) {
+    Column(Modifier.padding(vertical = Space.sm)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = LocalTokens.current.text)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = LocalTokens.current.textMuted)
+    }
+}
+
+/** What to try for the 2019 rollover, best first, with the fix for this chip. */
+@Composable
+private fun RolloverHelp(state: AppState, chip: Chip) {
+    val fix = when (chip) {
+        Chip.GL2 -> "Your GPS is a Broadcom BCM4750 (GL2), as in the GO x40, x50, 750, 950, XL IQ Routes and XXL Classic. " +
+            "The fix is the glgps file from NavCore 9.541 in the bin folder: use Install from file above, or see the guide below."
+        Chip.GL1 -> "Your GPS is a Global Locate Hammerhead (GL1), as in the ONE v4, ONE XL, ONE 140 and ONE 3rd Edition " +
+            "(serial Y2, Y4 to Y8). The fix is the unofficial TTconv patch: use Install above."
+        Chip.AR1520 -> "Your GPS is an Atheros AR1520 (Rider 2013). The fix is the unofficial TTconv patch: use Install above."
+        Chip.SIRF -> "Your GPS is a SiRFstarIII, as in the GO x10 to x30, older ONEs and Rider 1 and 2. The chip itself isn't " +
+            "affected by the rollover: older NavCores misread its date since then, and fixes can take very long or stop after a few " +
+            "warm starts. NavCore 9.541 SE is reported to fix this. Some people flash the unofficial firmware GSW 3.2.5tt3 or 3.6.0 " +
+            "instead. All of this is unofficial, so you'll have to find it yourself: MapsToTom doesn't include it or flash GPS chips, " +
+            "because a failed flash can't be undone."
+        Chip.UNKNOWN -> return
+    }
+    Column(Modifier.padding(vertical = Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+        Text("How to fix it", style = MaterialTheme.typography.titleSmall, color = LocalTokens.current.text)
+        val version = state.device?.navcore
+        val running = version?.let { "Your TomTom runs NavCore $it. " }.orEmpty()
+        if (isNavCore95(version)) Prose("${running}That's already a 9.5xx, so a NavCore update won't add much. Apply the fix for your GPS chip. $fix")
+        else Prose("${running}Try these in order:\n" +
+            "1. Check TomTom HOME for a NavCore update. If your TomTom can get 9.501 or 9.541, that will most likely fix it.\n" +
+            "2. If it doesn't, or you can't or don't want to update, you can look for a custom 9.5xx NavCore for your model on " +
+            "GPS and navigation device forums. Those files are unofficial, so use them at your own risk.\n" +
+            "3. Or apply the fix for your GPS chip. $fix")
+        when (chip) {
+            Chip.GL2 -> TextButton({ state.platform.openUrl(RIMA_LOCK_FIX) }, contentPadding = PaddingValues(0.dp)) { Text("glgps fix guide (rima-lock.com)") }
+            Chip.GL1, Chip.AR1520 -> TextButton({ state.platform.openUrl(TTCONV_PAGE) }, contentPadding = PaddingValues(0.dp)) { Text("TTconv by treysis") }
+            else -> {}
+        }
+    }
+}
+
+private const val TTCONV_PAGE = "https://github.com/treysis/TTconv"
+private const val RIMA_LOCK_FIX = "https://www.rima-lock.com/tomtom-urban-rider-K3-WNRO-fix.htm#and_here_is_the_fix"
 
 private class Check(val status: Status, val title: String, val detail: String)
 
@@ -38,7 +85,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val load by produceLoad(d, state.gen) {
         GpsView(quickFixOnDevice(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
             d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs),
-            if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null)
+            if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null,
+            if (d.chip.chip == Chip.GL1) almanacInfo(d.fs) else null)
     }
     val chip = d.chip.chip
     val subtitle = "${chip.label}" + (d.chip.firmware.takeIf { it.isNotEmpty() }?.let { ", firmware $it" } ?: "") + "."
@@ -78,7 +126,7 @@ fun ColumnScope.GpsScreen(state: AppState) {
         }
         Chip.GL2 -> if (v.glgps.fixed) Check(Status.OK, "Date fix installed", "NavCore 9.541 GPS driver (Broadcom GLL 2.16.201).")
             else Check(Status.BAD, "Date fix missing", if (v.glgps.present) "bin/glgps is ${v.glgps.version ?: "an unknown version"}." else "The built-in GPS driver predates the 2019 fix.")
-        Chip.SIRF -> if (sirfNeedsUpdate(d.chip.firmware)) Check(Status.BAD, "GPS firmware too old", "${d.chip.firmware} fails after 2019. It needs 3.2.5 or 3.6.0.")
+        Chip.SIRF -> if (sirfNeedsUpdate(d.chip.firmware)) Check(Status.WARN, "May need a newer NavCore", "This chip isn't affected by the rollover, but older NavCores misread its date. NavCore 9.541 SE is reported to fix it. If you already run it, ignore this.")
             else Check(Status.OK, "GPS firmware fine", d.chip.firmware.ifEmpty { "Version unknown." })
         Chip.UNKNOWN -> Check(Status.NONE, "Date fix unknown", "The GPS chip could not be identified.")
     }
@@ -102,30 +150,63 @@ fun ColumnScope.GpsScreen(state: AppState) {
             Text(if (problems == 0) "Ready to navigate" else if (problems == 1) "1 thing to fix" else "$problems things to fix",
                 style = MaterialTheme.typography.headlineSmall, color = t.text)
         }
-        Hairline()
-        StatusRow(quick.status, quick.title, quick.detail) {
-            if (chip.quickFixProvider != null) {
-                val busy = state.busy == "Downloading QuickGPSFix…"
-                if (quick.status == Status.OK) SecondaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
-                else PrimaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
-            }
-        }
-        Hairline()
-        StatusRow(dateFix.status, dateFix.title, dateFix.detail) {
-            when (chip) {
-                Chip.GL1, Chip.AR1520 -> if (v.ttconv != TtconvState.INSTALLED_IMPROVED)
-                    PrimaryButton(if (v.ttconv == TtconvState.NOT_INSTALLED) "Install" else "Upgrade", { state.installTtconv() }, enabled = idle)
-                Chip.GL2 -> if (!v.glgps.fixed) PrimaryButton("Install from file", { state.installGlgps() }, enabled = idle)
-                else -> {}
-            }
-        }
-        if (clock != null) {
+    }
+
+    Spacer(Modifier.height(Space.lg))
+    // Two separate jobs, side by side: finding satellites quickly, and the 2019 date problem.
+    val fixPanel: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, padding = PaddingValues(horizontal = Space.lg, vertical = Space.sm)) {
+            GpsGroupTitle("GPS fix", "How fast it finds satellites. Doesn't need a patched NavCore.")
             Hairline()
-            StatusRow(clock.status, clock.title, clock.detail) {
-                if (!v.clockFix) PrimaryButton("Install", { state.setClockFix(true) }, enabled = idle)
-                else DangerTextButton("Remove", { state.setClockFix(false) }, enabled = idle)
+            StatusRow(quick.status, quick.title, quick.detail) {
+                if (chip.quickFixProvider != null) {
+                    val busy = state.busy == "Downloading QuickGPSFix…"
+                    if (quick.status == Status.OK) SecondaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
+                    else PrimaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
+                }
+            }
+            v.almanac?.takeIf { ALMANAC_FEATURE || !it.builtIn }?.let { a ->
+                Hairline()
+                val old = a.date.isBefore(Instant.now().minusSeconds(90L * 86_400))
+                StatusRow(if (a.builtIn || old) Status.WARN else Status.OK,
+                    if (a.builtIn) "Built-in almanac is from 2007" else "Almanac from ${AppState.fmt(a.date)}",
+                    if (a.builtIn) "The GPS program's own table of satellite orbits is out of date. Updating it can help the first fix."
+                    else "Current satellite orbits are in the GPS program. Update every few months.") {
+                    if (a.builtIn) PrimaryButton("Update", { state.askUpdateAlmanac() }, enabled = idle)
+                    else {
+                        SecondaryButton("Update", { state.askUpdateAlmanac() }, enabled = idle)
+                        if (a.canRemove) DangerTextButton("Undo", { state.askRemoveAlmanac() }, enabled = idle)
+                    }
+                }
             }
         }
+    }
+    val rolloverPanel: @Composable (Modifier) -> Unit = { m ->
+        Panel(m, padding = PaddingValues(horizontal = Space.lg, vertical = Space.sm)) {
+            GpsGroupTitle("Week rollover (2019)", "Why old units show a wrong date or lose satellites.")
+            Hairline()
+            StatusRow(dateFix.status, dateFix.title, dateFix.detail) {
+                when (chip) {
+                    Chip.GL1, Chip.AR1520 -> if (v.ttconv != TtconvState.INSTALLED_IMPROVED)
+                        PrimaryButton(if (v.ttconv == TtconvState.NOT_INSTALLED) "Install" else "Upgrade", { state.askInstallTtconv() }, enabled = idle)
+                    Chip.GL2 -> if (!v.glgps.fixed) PrimaryButton("Install from file", { state.askInstallGlgps() }, enabled = idle)
+                    else -> {}
+                }
+            }
+            if (clock != null) {
+                Hairline()
+                StatusRow(clock.status, clock.title, clock.detail) {
+                    if (!v.clockFix) PrimaryButton("Install", { state.askClockFix() }, enabled = idle)
+                    else DangerTextButton("Remove", { state.setClockFix(false) }, enabled = idle)
+                }
+            }
+            if (dateFix.status == Status.BAD || dateFix.status == Status.WARN) { Hairline(); RolloverHelp(state, chip) }
+        }
+    }
+    BoxWithConstraints {
+        if (maxWidth >= 760.dp) Row(horizontalArrangement = Arrangement.spacedBy(Space.lg), verticalAlignment = Alignment.Top) {
+            fixPanel(Modifier.weight(1f)); rolloverPanel(Modifier.weight(1f))
+        } else Column(verticalArrangement = Arrangement.spacedBy(Space.lg)) { fixPanel(Modifier); rolloverPanel(Modifier) }
     }
 
     JobFeedback(state, Job.GPS)
@@ -158,13 +239,13 @@ fun ColumnScope.GpsScreen(state: AppState) {
             }
             Chip.GL2 -> Detail("GPS driver",
                 "This chip is fixed by the GPS driver from NavCore 9.541, built in October 2018. MapsToTom can't include it, so choose bin/glgps from your own NavCore 9.541 files. It is checked before it is installed, and the old one is kept as bin/glgps.orig.") {}
-            Chip.SIRF -> Detail("SiRF firmware",
-                "The fix for GSW 3.2.4 is flashing GPS firmware 3.2.5 or 3.6.0 with the community FlashGPS tool. MapsToTom doesn't flash GPS chips: a failed flash can leave the GPS dead.") {}
+            Chip.SIRF -> Detail("SiRF and the rollover",
+                "The SiRFstarIII chip isn't affected by the 2019 rollover. Older NavCores misread the date in its NMEA data, and NavCore 9.541 SE is reported to fix that. Some people flash the community firmware GSW 3.2.5 or 3.6.0 instead. MapsToTom doesn't flash GPS chips: a failed flash can't be undone.") {}
             Chip.UNKNOWN -> {}
         }
         if (chip == Chip.GL2) Detail("Clock fix",
             "Old TomToms lose their internal clock. This GPS engine starts from that clock and, with QuickGPSFix, searches the wrong part of the sky. The fix writes gl/cfg/glconfig.xml, built from this TomTom's own system files, telling the engine to read the time from the satellites first.") {
-            if (!v.clockFix) SecondaryButton("Install with GPS log", { state.setClockFix(true, log = true) }, enabled = idle)
+            if (!v.clockFix) SecondaryButton("Install with GPS log", { state.askClockFix(log = true) }, enabled = idle)
         }
         Text("Chip detected from: ${d.chip.reason}.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
     }

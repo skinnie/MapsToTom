@@ -185,6 +185,27 @@ fun DangerButton(text: String, onClick: () -> Unit) {
     }
 }
 
+/** Before a change to the TomTom's own software: no warranty, and the offer of a backup first. */
+@Composable
+fun RiskyChangeDialog(title: String, what: String, onBackup: () -> Any?, onContinue: () -> Unit, onDismiss: () -> Unit) =
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = LocalTokens.current.surface,
+        shape = Radius.panel,
+        title = { Text(title, style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Prose("$what\n\nThis is an unofficial change, made at your own risk. MapsToTom comes with no warranty, and we " +
+                "can't be held responsible if your TomTom stops working or loses data. Keep a backup so you can put it back.", muted = false)
+        },
+        confirmButton = { Button({ onBackup() }) { Text("Back up first") } },
+        dismissButton = {
+            Row {
+                TextButton(onDismiss) { Text("Cancel") }
+                TextButton(onContinue) { Text("Continue without backup") }
+            }
+        },
+    )
+
 /** Confirmation dialog for a destructive action. */
 @Composable
 fun ConfirmDanger(title: String, body: String, confirm: String, onConfirm: () -> Unit, onDismiss: () -> Unit) =

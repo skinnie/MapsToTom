@@ -84,7 +84,7 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
 |---|---|---|---|
 | Global Locate GL1 (Hammerhead) | ONE v4, ONE 3rd ed., XL | `lto.dat` | **TTconv** (installed by MapsToTom) |
 | Broadcom BCM4750 / GL2 (Barracuda) | GO x50, GO 950 | `lto.dat` | **glgps from NavCore 9.541** (you supply it) + **clock fix** |
-| SiRFstarIII | GO x10–x40, older ONE | `packedephemeris.ee` | GPS firmware 3.2.5 / 3.6.0 (shown, not flashed) |
+| SiRFstarIII | GO x10–x40, older ONE | `packedephemeris.ee` | Not affected itself: **NavCore 9.541 SE** is reported to fix it |
 | Atheros AR1520 | Rider 2013 | — | TTconv |
 
 - **QuickGPSFix** downloads the 7-day satellite orbit prediction from TomTom's own server (the
@@ -110,6 +110,41 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
   gets a fix (deleting QuickGPSFix "fixes" it). The clock fix tells the engine to take the time
   from the satellites first. It is built from the TomTom's own system files and written to
   `gl/cfg/glconfig.xml`; remove it to undo.
+- **Almanac** (GL1, GLL 185.5001.041, experimental and not offered in the app yet): see
+  [docs/gps-almanac.md](docs/gps-almanac.md).
+
+### The GPS week rollover patches
+
+GPS counts weeks in 10 bits, so the count wraps every 19.6 years. The last wrap, in April 2019, is
+why these old units show wrong dates and lose satellites. These are the community fixes MapsToTom
+uses or points to:
+
+- **[TTconv](https://github.com/treysis/TTconv)** by treysis, for GL1 and Rider 2013 units. MapsToTom
+  installs it. In its author's words:
+  > After April 7, 2019 the Rider 2013 and devices with GL1 GPS chip (e.g. ONE 3rd) aren't able to
+  > display the correct time anymore and lose some functions because of this.
+
+  > Use of this patch is at your own risk!
+- **[glgps fix for the Urban Rider K3](https://www.rima-lock.com/tomtom-urban-rider-K3-WNRO-fix.htm)**
+  (rima-lock.com), for Broadcom GL2 units. It replaces `bin/glgps` by hand, the same kind of fix as
+  MapsToTom's **glgps 9.541** step. MapsToTom doesn't download or include that file.
+
+If your TomTom isn't fixed, try these in order:
+
+1. Check TomTom HOME for a NavCore update. If your TomTom can get 9.501 or 9.541, that will most likely fix it.
+2. If it doesn't, or you can't or don't want to update, you can look for a custom 9.5xx NavCore for your model
+   on GPS and navigation device forums. Those files are unofficial, so use them at your
+   own risk.
+3. Or apply the fix for your GPS chip, which MapsToTom detects:
+
+| GPS chip | Devices (community list) | Fix |
+|---|---|---|
+| Broadcom BCM4750 (GL2) | XXL Classic, ONE IQ Routes, XL IQ Routes, XL IQR2 / XL Classic, GO 750, GO 950, GO 540 / 740 / 940 LIVE, GO 750 / 950 LIVE | `glgps` from 9.541 in `bin` ([guide](https://www.rima-lock.com/tomtom-urban-rider-K3-WNRO-fix.htm#and_here_is_the_fix)) |
+| Global Locate Hammerhead (GL1) | ONE XL, XL HDT, XL-S, ONE v4, XL, ONE 140, XL340, ONE 2nd Edition (Z1 to Z3), ONE 3rd Edition (Y2, Y4 to Y8) | [TTconv](https://github.com/treysis/TTconv) |
+| SiRFstarIII | GO 510 to 930, GO 7000 Truck, ONE v1 to v3, ONE 3rd (v7, Y1, Y3), Rider 1 and 2 | The chip isn't affected: older NavCores misread its NMEA date. **NavCore 9.541 SE** is reported to fix it. Some flash unofficial firmware GSW 3.2.5tt3 or 3.6.0 instead. All unofficial: you'll have to find it yourself, and MapsToTom doesn't include or flash it |
+
+The GPS fix (QuickGPSFix) doesn't need a patched NavCore. MapsToTom asks before changing the
+TomTom's GPS software and offers to back up the files first.
 
 ## Routes from GPX
 
@@ -192,8 +227,13 @@ PPP link itself, and answers the Live services on 192.168.77.1:8080 from public 
 - Anything else the TomTom opens goes to the internet through the phone.
 
 The TomTom's card needs, once: a NavCore patched for the link and discovery files pointing at
-`192.168.77.1:8080`. The tools that make them aren't published yet, so for now the car link is for
-TomToms already set up. Then: Car tab, Start, Make phone visible, and pair from the TomTom's phone
+`192.168.77.1:8080`. The **Device** tab does both: it warns you, offers a backup, keeps the original on the card and can
+undo it. It was tested on NavCore 9.541 (build 3145439.2). Another NavCore is accepted, untested and
+at your own risk, if its code matches at every place the patch writes to. If it doesn't match, the
+patch would overwrite the wrong code, so MapsToTom won't apply it. First check TomTom HOME for an
+update. If it has none, look for a later NavCore on GPS and navigation device forums (unofficial, at your own risk) and come back to check it. The patch works with **9.5xx NavCores**
+(checked: 9.510, 9.530, 9.541). Other 8.x and 9.x versions with the Live code need a port, which you can build with the
+[porting guide](docs/navcore-survey.md#porting-the-patch). 7.x and older don't have the Live code. Map licences aren't touched. Then: Car tab, Start, Make phone visible, and pair from the TomTom's phone
 menu with PIN 0000. Android shows a notification while the link runs. Phones that already offer
 their own Bluetooth dial-up (some Samsungs) may be picked instead of MapsToTom.
 Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for
@@ -304,4 +344,5 @@ is shared by desktop and Android; only file pickers and USB access differ.
 - Places: [Foursquare Open Source Places](https://opensource.foursquare.com/os-places/) (Apache 2.0)
   and [Overture Maps](https://overturemaps.org) places (CDLA Permissive 2.0). Country areas: Natural
   Earth (public domain). Zstandard decompression: [zstd-jni](https://github.com/luben/zstd-jni) (BSD).
+- GPS almanac: [CelesTrak](https://celestrak.org/GPS/almanac/Yuma/), downloaded when you ask for it.
 - MapsToTom does not activate or unlock maps.

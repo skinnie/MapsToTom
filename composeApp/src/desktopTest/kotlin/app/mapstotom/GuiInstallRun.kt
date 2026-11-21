@@ -161,3 +161,17 @@ class FuelInstallRun {
         println("FUEL: installed ${stations.size} stations, ${type.label}, set $id")
     }
 }
+
+/** Writes today's almanac into the card's GPS program. It WRITES TO THE CARD. Not run by default: -Pm2t.almCard=<card root> */
+class AlmanacInstallRun {
+    @Test fun run() {
+        val root = System.getProperty("m2t.almCard")?.let(::File) ?: return
+        val fs = app.mapstotom.core.LocalFs(root)
+        val r = app.mapstotom.core.RealNet().get(app.mapstotom.core.ALMANAC_URL, mapOf("User-Agent" to app.mapstotom.core.USER_AGENT), timeoutMs = 30_000)
+        check(r.code == 200) { "HTTP ${r.code}" }
+        val sats = app.mapstotom.core.parseYuma(r.text)
+        app.mapstotom.core.installAlmanac(fs, sats)
+        val info = app.mapstotom.core.almanacInfo(fs) ?: error("not readable after install")
+        println("ALMANAC: ${sats.size} satellites, ${sats.count { it.healthy }} healthy, week ${sats[0].week}, date ${info.date}, builtIn=${info.builtIn}, canRemove=${info.canRemove}")
+    }
+}

@@ -108,23 +108,64 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     private fun needsRestart() { restartPending = true }
 
-    private fun work(label: String, key: String? = null, block: suspend () -> Unit) {
+    private fun work(label: String, key: String? = null, after: (() -> Unit)? = null, block: suspend () -> Unit) {
         if (busy != null) return
         busy = label; busyKey = key
         if (stepsKey != key) { steps = emptyList(); stepsKey = null }
         if (note?.key == key) note = null
         scope.launch {
+            var ok = false
             try {
                 withContext(Dispatchers.IO) { block() }
                 steps.forEach { if (it.state == Step.State.RUNNING || it.state == Step.State.TODO) it.state = Step.State.DONE }
+                ok = true
             } catch (e: Throwable) {
                 steps.forEach { if (it.state == Step.State.RUNNING) it.state = Step.State.FAILED }
                 say("${label.removeSuffix("…")} failed: ${e.message ?: e::class.simpleName}", error = true)
             } finally {
                 busy = null; busyKey = null; progress = null
             }
+            if (ok) after?.invoke()
         }
     }
+
+    // ---------------------------------------------------------- changes to the TomTom's own software
+    /** A change that could stop the TomTom working: asked about first, with the offer of a backup of [paths]. */
+    class RiskyChange(val title: String, val what: String, val paths: List<String>, val job: String, val run: () -> Unit)
+
+    var riskyChange by mutableStateOf<RiskyChange?>(null)
+        private set
+
+    fun dismissRisky() { riskyChange = null }
+
+    fun continueRisky() { val r = riskyChange ?: return; riskyChange = null; r.run() }
+
+    /** Backs up the files the change touches, and makes the change only if that worked. */
+    fun backupThenRisky() = scope.launch {
+        val r = riskyChange ?: return@launch
+        val d = device ?: return@launch
+        riskyChange = null
+        val target = platform.pickFolder(FolderPurpose.BACKUP_TARGET)
+        if (target == null) { riskyChange = r; return@launch } // back to the question
+        work("Backing up…", r.job, after = r.run) {
+            val folder = "MapsToTom-backup-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
+            val n = backupFiles(d.fs, target, folder, r.paths, "Backup of ${d.model} before: ${r.title}. Made by MapsToTom on ${LocalDateTime.now()}")
+            say("Backed up $n files to ${target.displayName}/$folder.")
+        }
+    }
+
+    @OptIn(ExperimentalResourceApi::class)
+    fun askInstallTtconv() { riskyChange = RiskyChange("Install the GPS date fix (TTconv)?",
+        "This changes how your TomTom starts: its start-up script (ttn) and the GPS date fix files.",
+        TTCONV_FILES + "ttn", Job.GPS) { installTtconv() } }
+
+    fun askInstallGlgps() { riskyChange = RiskyChange("Replace the GPS driver?",
+        "This replaces your TomTom's GPS driver (bin/glgps) with the one from NavCore 9.541.",
+        listOf("bin/glgps"), Job.GPS) { installGlgps() } }
+
+    fun askClockFix(log: Boolean = false) { riskyChange = RiskyChange("Install the GPS clock fix?",
+        "This adds a settings file for the GPS engine ($CLOCK_FIX_PATH).",
+        listOf(CLOCK_FIX_PATH), Job.GPS) { setClockFix(true, log) } }
 
     // ---------------------------------------------------------- device
     var device by mutableStateOf<DeviceInfo?>(null); private set
@@ -397,6 +438,27 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say(if (on) "Clock fix installed ($CLOCK_FIX_PATH). Restart the TomTom." else "Clock fix removed.")
     }
 
+    fun askUpdateAlmanac() { riskyChange = RiskyChange("Update the GPS almanac?",
+        "This rewrites the table of satellite orbits inside your TomTom's GPS program (bin/gltt) with today's public " +
+            "almanac from CelesTrak. The original program stays on the card, so you can undo it.",
+        listOf(GLTT_PATH), Job.GPS) { updateAlmanac() } }
+
+    fun askRemoveAlmanac() { riskyChange = RiskyChange("Go back to the built-in almanac?",
+        "This puts your TomTom's original GPS program back.", listOf(GLTT_PATH), Job.GPS) { removeBuiltAlmanac() } }
+
+    private fun updateAlmanac() = work("Updating the GPS almanac…", Job.GPS) {
+        val r = net.get(ALMANAC_URL, mapOf("User-Agent" to USER_AGENT), timeoutMs = 30_000)
+        check(r.code == 200) { "CelesTrak answered HTTP ${r.code}" }
+        val satellites = parseYuma(r.text)
+        installAlmanac(requireDevice().fs, satellites); gen++; needsRestart()
+        say("GPS almanac updated with ${satellites.count { it.healthy }} satellites. Do a full restart of the TomTom.")
+    }
+
+    private fun removeBuiltAlmanac() = work("Restoring the GPS program…", Job.GPS) {
+        removeAlmanac(requireDevice().fs); gen++; needsRestart()
+        say("Original GPS program restored. Do a full restart of the TomTom.")
+    }
+
     fun setGlttDebug(on: Boolean) = work("Changing the GPS log…", Job.GPS) {
         val fs = requireDevice().fs
         if (on) fs.write("gl/debug-gltt", ByteArray(0)) else if (fs.exists("gl/debug-gltt")) fs.delete("gl/debug-gltt")
@@ -419,6 +481,37 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     fun setLive(on: Boolean) = work(if (on) "Turning Live services on…" else "Turning Live services off…", Job.DEVICE) {
         app.mapstotom.core.setLive(requireDevice().fs, on); gen++; needsRestart()
         say((if (on) "Live services on, with Bluetooth." else "Live services off.") + " The TomTom uses it from its next full start.")
+    }
+
+    private val carLinkFiles = listOf(NAVCORE_PATH, "Config/setconfig.txt", "setconfig.txt") + CAR_LINK_DISCOVERY.keys
+
+    private var loadedNavCorePatch: NavCorePatch? = null
+
+    @OptIn(ExperimentalResourceApi::class)
+    suspend fun navCorePatch(): NavCorePatch = loadedNavCorePatch
+        ?: NavCorePatch.parse(Res.readBytes("files/navcore/9541-carlink.json").decodeToString()).also { loadedNavCorePatch = it }
+
+    fun askCarLinkPatch(tested: Boolean = true) { riskyChange = RiskyChange("Patch NavCore for the car link?",
+        (if (tested) "" else "NOT TESTED on this NavCore: its code matches at every patch site, but it isn't the version we " +
+            "tried on a real TomTom. If you can, update to NavCore 9.541 with TomTom HOME first.\n\n") +
+            "This changes your TomTom's navigation program (PNDNavigator) so it can use this app's Live services over " +
+            "Bluetooth, and turns Live and Bluetooth on. The original stays on the card, so you can remove the patch.",
+        carLinkFiles, Job.DEVICE) { installCarLinkPatch() } }
+
+    fun askRemoveCarLinkPatch() { riskyChange = RiskyChange("Remove the car link patch?",
+        "This puts your original navigation program back and turns Live services off.",
+        carLinkFiles, Job.DEVICE) { removeCarLinkPatch() } }
+
+    private fun installCarLinkPatch() = work("Patching NavCore…", Job.DEVICE) {
+        val patch = navCorePatch()
+        app.mapstotom.core.installCarLinkPatch(requireDevice().fs, patch); gen++; needsRestart()
+        say("NavCore patched, with Live and Bluetooth on. Do a full restart of the TomTom, then pair it from the Car tab.")
+    }
+
+    private fun removeCarLinkPatch() = work("Removing the patch…", Job.DEVICE) {
+        val patch = navCorePatch()
+        app.mapstotom.core.removeCarLinkPatch(requireDevice().fs, patch); gen++; needsRestart()
+        say("Original NavCore restored and Live services off. Do a full restart of the TomTom.")
     }
 
     fun setBluetooth(on: Boolean) = work(if (on) "Turning Bluetooth on…" else "Turning Bluetooth off…", Job.DEVICE) {

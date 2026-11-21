@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.outlined.Info
+import app.mapstotom.core.NavCoreState
+import app.mapstotom.core.NAVCORE_PORTING_GUIDE
+import app.mapstotom.core.carLinkAdvice
 import app.mapstotom.core.Addons
 import app.mapstotom.core.LIVE_MODELS
 import app.mapstotom.core.powerOffEnabled
@@ -47,11 +50,11 @@ fun ColumnScope.DeviceScreen(state: AppState) {
         Row { TextButton(onClick = { state.refresh() }, enabled = idle, contentPadding = PaddingValues(horizontal = 0.dp, vertical = Space.sm)) { Text("Read again") } }
     }
 
-    val addonsLoad by produceLoad(d, state.gen) { readAddons(d.fs, d.mapFolder, d.chip.chip) }
+    val addonsLoad by produceLoad(d, state.gen) { readAddons(d.fs, d.mapFolder, d.chip.chip, state.navCorePatch()) }
     when (val l = addonsLoad) {
         Load.Loading -> {}
         is Load.Failed -> { Spacer(Modifier.height(Space.xxl)); LoadFailed(state, "the add-ons", l) }
-        is Load.Ready -> l.value.takeIf { it.any }?.let { AddonsSection(state, it, idle) }
+        is Load.Ready -> l.value.takeIf { it.any || d.navcore != null }?.let { AddonsSection(state, it, idle) }
     }
     JobFeedback(state, Job.DEVICE, Modifier.widthIn(max = Space.measure))
     (infoLoad as? Load.Failed)?.let { f ->
@@ -134,6 +137,28 @@ private fun AddonsSection(state: AppState, a: Addons, idle: Boolean) {
     Spacer(Modifier.height(Space.md))
     Panel(Modifier.widthIn(max = Space.measure), padding = PaddingValues(horizontal = Space.lg, vertical = Space.xs)) {
         val rows = mutableListOf<@Composable () -> Unit>()
+        val advice = carLinkAdvice(state.device?.navcore, a.navCore, sc != null, a.navCoreLiveCode)
+        if (advice != null) rows += {
+            StatusRow(Status.NONE, advice.title, advice.detail) {
+                if (advice.canPort) TextButton({ state.platform.openUrl(NAVCORE_PORTING_GUIDE) }) { Text("Porting guide") }
+            }
+        }
+        else if (a.navCore != NavCoreState.MISSING) rows += {
+            when (a.navCore) {
+                NavCoreState.ORIGINAL -> StatusRow(Status.WARN, "Car link patch not installed",
+                    "NavCore ${state.device?.navcore ?: "9.541"} needs this patch to use Live services through a phone.") {
+                    PrimaryButton("Install", { state.askCarLinkPatch() }, enabled = idle)
+                }
+                NavCoreState.COMPATIBLE -> StatusRow(Status.WARN, "Car link patch: not tested on NavCore ${state.device?.navcore ?: "this version"}",
+                    "Its code matches the patch (the 9.5xx family), but we haven't tried it on a real TomTom. Use at your own risk.") {
+                    SecondaryButton("Install", { state.askCarLinkPatch(tested = false) }, enabled = idle)
+                }
+                else -> StatusRow(Status.OK, "Car link patch installed",
+                    if (a.navCoreKept) "The original NavCore is kept on the card." else "Patched before MapsToTom could keep the original.") {
+                    if (a.navCoreKept) DangerTextButton("Remove", { state.askRemoveCarLinkPatch() }, enabled = idle)
+                }
+            }
+        }
         if (sc != null) {
             val live = sc.live
             rows += {
