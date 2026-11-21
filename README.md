@@ -1,12 +1,15 @@
 # MapsToTom
-
-Send places and routes from Google Maps or ViaMichelin to an old TomTom, and keep its GPS working.
+Maps to Tom was created in order to give old Tomtom Nav2 GPS the possibility to receive places and routes from Google Maps or ViaMichelin.
+Later on the following features were added:
+- Update gpsfix
+- Add POIs from Openstreemap, Overture, Foursquare, a Garmin GPI file, a .ov2 file or a google maps list
+- Offer known patches for gps rollover
+- Offer improved accuracy and faster gps fix times with patched navcore
+    
 For TomTom ONE, XL, GO and Rider models that show up as a USB drive with a `ttgo.bif` file
 (NavCore 8 and 9). Built and tested with a TomTom ONE v4 running NavCore 9.541.
 
-One app for **Windows, macOS, Linux and Android**, with the same screens everywhere. It replaces the
-first MapsToTom, a small Python script for the desktop (still in the git history).
-
+One app for **Windows, macOS, Linux and Android**, with the same screens everywhere. 
 <p>
   <img src="docs/send.png" alt="Send screen: a Google Maps route as a list of stops ready to save to the TomTom" width="49%">
   <img src="docs/gps.png" alt="GPS health screen: QuickGPSFix and the 2019 date fix both in place" width="49%">
