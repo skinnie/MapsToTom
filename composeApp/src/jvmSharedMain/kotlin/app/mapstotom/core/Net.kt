@@ -26,7 +26,25 @@ interface Net {
     ): HttpResponse
 }
 
+/**
+ * Spain's official fuel price server only offers TLS_RSA_WITH_AES_256_GCM_SHA384, which current Java updates turn off
+ * with the rest of TLS_RSA_*. This turns that one suite back on, last in preference, and leaves the others off. It has
+ * to run before Java's first TLS connection. Android has no such setting, so there it does nothing.
+ */
+internal object LegacyTls {
+    private const val KEY = "jdk.tls.disabledAlgorithms"
+    private const val OTHER_RSA = "TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_CBC_SHA256, " +
+        "TLS_RSA_WITH_AES_128_CBC_SHA256, TLS_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_CBC_SHA"
+
+    fun allow() {
+        val now = java.security.Security.getProperty(KEY) ?: return
+        if ("TLS_RSA_*" in now) java.security.Security.setProperty(KEY, now.replace("TLS_RSA_*", OTHER_RSA))
+    }
+}
+
 class RealNet : Net {
+    init { LegacyTls.allow() }
+
     override fun get(url: String, headers: Map<String, String>, followRedirects: Boolean, timeoutMs: Int): HttpResponse {
         val c = URL(url).openConnection() as HttpURLConnection
         c.instanceFollowRedirects = followRedirects

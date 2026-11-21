@@ -213,9 +213,18 @@ internal fun mitecoStations(json: String): List<FuelStation> {
 
 /** Every Spanish station with its prices: one download of about 12 MB. */
 fun fetchSpain(net: Net): List<FuelStation> {
-    val r = net.get(MITECO, mapOf("User-Agent" to USER_AGENT, "Accept" to "application/json"), timeoutMs = 180_000)
-    if (r.code != 200) error("Spain (MITECO): HTTP ${r.code}")
-    return mitecoStations(r.text)
+    var last: java.io.IOException? = null
+    repeat(3) { k ->
+        try {
+            val r = net.get(MITECO, mapOf("User-Agent" to USER_AGENT, "Accept" to "application/json"), timeoutMs = 180_000)
+            if (r.code != 200) error("Spain (MITECO): HTTP ${r.code}")
+            return mitecoStations(r.text)
+        } catch (e: java.io.IOException) { // a dropped connection; the server is often busy
+            last = e
+            if (k < 2) Thread.sleep(3000L * (k + 1))
+        }
+    }
+    throw IllegalStateException("Spain (MITECO): ${last?.message}", last)
 }
 
 // ------------------------------------------------------------------ France (prix-carburants, Ministère de l'Économie)

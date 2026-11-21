@@ -135,3 +135,29 @@ class FoursquareInstallRun {
         }
     }
 }
+
+/**
+ * Installs today's fuel prices on a TomTom card and records the set for the car link. It WRITES TO THE CARD. Not run by default:
+ * -Pm2t.fuelCard=<card root> -Pm2t.fuelOut=<dir for fuelset-<id>.txt, to copy to the phone's files/carlink>
+ */
+class FuelInstallRun {
+    @Test fun run() {
+        val root = System.getProperty("m2t.fuelCard")?.let(::File) ?: return
+        val out = File(System.getProperty("m2t.fuelOut") ?: error("-Pm2t.fuelOut needed"))
+        val fs = app.mapstotom.core.LocalFs(root)
+        val map = app.mapstotom.core.findMapFolder(fs) ?: error("no map folder")
+        val sources = app.mapstotom.core.mapCountries(fs, map).mapNotNull(app.mapstotom.core.FuelSource::of)
+        check(sources.isNotEmpty()) { "no fuel source for this map" }
+        val type = app.mapstotom.core.findFuelSets(fs, map).firstOrNull()?.type ?: app.mapstotom.core.FuelType.DIESEL
+        val net = app.mapstotom.core.RealNet()
+        val time = java.time.Instant.now()
+        val stations = sources.flatMap { s ->
+            app.mapstotom.core.fetchFuel(s, net, type).also { println("FUEL: ${s.country} ${it.size} stations") }
+        }
+        check(stations.size > 1000) { "only ${stations.size} stations, not replacing the set" }
+        app.mapstotom.core.installFuelPrices(fs, map, stations, type, time)
+        val id = app.mapstotom.core.fuelSetId(map)
+        app.mapstotom.link.StoredFuelSets.record(out, id, sources, app.mapstotom.core.fuelSetOrder(stations))
+        println("FUEL: installed ${stations.size} stations, ${type.label}, set $id")
+    }
+}
