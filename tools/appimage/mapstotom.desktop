@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MapsToTom
+Comment=Send Google Maps places and routes to an old TomTom, and keep its GPS healthy
+Exec=MapsToTom
+Icon=mapstotom
+Categories=Utility;
+Terminal=false

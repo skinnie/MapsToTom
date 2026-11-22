@@ -52,6 +52,22 @@ jobs:
             composeApp/build/compose/binaries/main/msi/*.msi
             composeApp/build/compose/binaries/main/dmg/*.dmg
 
+  appimage:
+    needs: test
+    # Built on an older Ubuntu so the AppImage also runs on older Linux systems.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sh tools/appimage/build-appimage.sh "$PWD/appimage-out"
+      - uses: actions/upload-artifact@v4
+        with: { name: MapsToTom-AppImage, path: appimage-out/MapsToTom-x86_64.AppImage }
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with: { files: appimage-out/MapsToTom-x86_64.AppImage }
+
   android:
     needs: test
     runs-on: ubuntu-latest
