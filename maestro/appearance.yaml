@@ -2,7 +2,7 @@ appId: app.mapstotom
 ---
 - launchApp
 - waitForAnimationToEnd
-- tapOn: "Device"
+- tapOn: "Settings"
 - waitForAnimationToEnd
 - scrollUntilVisible:
     element: "Accent colour"
@@ -12,10 +12,10 @@ appId: app.mapstotom
 - tapOn: "Light"
 - waitForAnimationToEnd
 - takeScreenshot: a2-pine-light
-- tapOn: "Send"
+- tapOn: "Itinerary"
 - waitForAnimationToEnd
 - takeScreenshot: a3-send-pine-light
-- tapOn: "Device"
+- tapOn: "Settings"
 - waitForAnimationToEnd
 - scrollUntilVisible:
     element: "Accent colour"

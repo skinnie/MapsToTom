@@ -25,12 +25,12 @@ appId: app.mapstotom
 - takeScreenshot: 07-pois-osm-lower
 - scroll
 - takeScreenshot: 08-pois-lower
-- tapOn: "Device"
+- tapOn: "Settings"
 - waitForAnimationToEnd
 - takeScreenshot: 09-device
 - scroll
 - takeScreenshot: 10-device-lower
-- tapOn: "Car"
+- tapOn: "Car link"
 - waitForAnimationToEnd
 - takeScreenshot: 11-car
 - scroll

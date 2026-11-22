@@ -2,6 +2,7 @@ package app.mapstotom
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
@@ -28,16 +29,16 @@ import kotlinx.coroutines.withContext
 // ------------------------------------------------------------------ Device
 
 @Composable
-fun ColumnScope.DeviceScreen(state: AppState) {
+fun ColumnScope.SettingsScreen(state: AppState) {
     val t = LocalTokens.current
     val d = state.device
-    if (d == null) { ScreenHeader("Device"); NeedDevice(state); AboutFooter(state); return }
+    if (d == null) { ScreenHeader("Settings"); NeedDevice(state); AboutFooter(state); return }
     val idle = state.busy == null
     var confirmRestore by remember { mutableStateOf(false) }
     val infoLoad by produceLoad(d, state.gen) { Triple(d.fs.freeSpace(), powerOffEnabled(d.fs), stayOnEnabled(d.fs)) }
     val info = (infoLoad as? Load.Ready)?.value
 
-    ScreenHeader(d.model, d.fs.displayName)
+    ScreenHeader("Settings", "${d.model}, ${d.fs.displayName}")
 
     Panel(Modifier.widthIn(max = Space.measure)) {
         d.navcore?.let { Fact("NavCore", it) }
@@ -56,6 +57,8 @@ fun ColumnScope.DeviceScreen(state: AppState) {
         is Load.Failed -> { Spacer(Modifier.height(Space.xxl)); LoadFailed(state, "the add-ons", l) }
         is Load.Ready -> l.value.takeIf { it.any || d.navcore != null }?.let { AddonsSection(state, it, idle) }
     }
+    val kitchenLoad by produceLoad(d, state.gen) { app.mapstotom.core.readKitchen(d.fs, d.bif) }
+    (kitchenLoad as? Load.Ready)?.value?.let { KitchenSection(state, d, it, idle) }
     JobFeedback(state, Job.DEVICE, Modifier.widthIn(max = Space.measure))
     (infoLoad as? Load.Failed)?.let { f ->
         Spacer(Modifier.height(Space.xxl))
@@ -90,7 +93,7 @@ fun ColumnScope.DeviceScreen(state: AppState) {
     Spacer(Modifier.height(Space.xxl))
     Text("Backup", style = MaterialTheme.typography.headlineSmall, color = t.text)
     Spacer(Modifier.height(Space.sm))
-    Prose("Copies every file on the TomTom into a new dated folder. Back up before installing fixes.")
+    Prose("Copies everything on the TomTom into a new dated folder and checks every file: maps, NavCore, system, GPS programs and settings. A restore checks the backup first, so a damaged one changes nothing. Back up before installing fixes.")
     Spacer(Modifier.height(Space.md))
     Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         PrimaryButton("Back up", { state.backup() }, enabled = idle, icon = Icons.Filled.Backup,
@@ -124,6 +127,90 @@ private const val GPS_LOG_COST = "Not measured. It writes the GPS engine's messa
 private const val SWAP_COST = "Not something to switch: the TomTom's system sets the swap file back to 8 MB at every start " +
     "and then fills it on purpose, so a full swap is normal. In the ONE v4 tests the TomTom waited for the card only 0–3% " +
     "of the time, so slowness comes from the processor, not from swapping."
+
+@Composable
+private fun KitchenSection(state: AppState, d: app.mapstotom.DeviceInfo, k: app.mapstotom.core.KitchenInfo, idle: Boolean) {
+    val specs = remember(d, state.gen) { app.mapstotom.core.readDeviceSpecs(d.fs, d.bif) }
+    val features = remember(d, state.gen) { d.bif["Features"]?.split(',')?.filter { it.isNotBlank() }?.toSet().orEmpty() }
+    KitchenContent(k, specs, features, idle) { state.askKitchenModel(it) }
+}
+
+@Composable
+internal fun KitchenContent(
+    k: app.mapstotom.core.KitchenInfo, specs: app.mapstotom.core.DeviceSpecs, features: Set<String>, idle: Boolean,
+    initial: String? = null, onChoose: (String) -> Unit,
+) {
+    val t = LocalTokens.current
+    var picked by remember { mutableStateOf(initial) }
+    Spacer(Modifier.height(Space.xxl))
+    Text("NavCore kitchen", style = MaterialTheme.typography.headlineSmall, color = t.text)
+    Spacer(Modifier.height(Space.sm))
+    Prose("NavCore can act like different TomTom models, and each one turns features on or off. Pick a profile to see what you'd gain, what you'd lose and what could go wrong. Nothing changes until you confirm.")
+    Spacer(Modifier.height(Space.md))
+    Panel(Modifier.widthIn(max = Space.measure)) {
+        Text("Your TomTom", style = MaterialTheme.typography.titleMedium, color = t.text)
+        Spacer(Modifier.height(Space.xs))
+        Fact("Model", listOfNotNull(specs.name, specs.version?.let { "($it)" }).joinToString(" ").ifEmpty { "Unknown" })
+        Fact("Screen", specs.screen ?: "Not known")
+        Fact("Memory", specs.ramMb?.let { "$it MB" } ?: "Not known")
+        Fact("Processor", specs.cpuMhz?.let { "$it MHz" } ?: "Not known")
+        Fact("GPS chip", specs.gps ?: "Not known")
+        Fact("Bluetooth", when (specs.bluetooth) { true -> "Yes"; false -> "No"; null -> "Not known" })
+        Fact("Microphone", when (specs.microphone) { true -> "Yes"; false -> "No"; null -> "Not known" })
+        k.navcore?.let { Fact("NavCore", it) }
+        Fact("Acting as", app.mapstotom.core.recipeFor(k.model)?.title ?: app.mapstotom.core.kitchenModel(k.model)?.label ?: k.model ?: "Chosen by the system")
+    }
+    Spacer(Modifier.height(Space.md))
+    Panel(Modifier.widthIn(max = Space.measure)) {
+        Text("Profiles", style = MaterialTheme.typography.titleMedium, color = t.text)
+        Spacer(Modifier.height(Space.xs))
+        app.mapstotom.core.KITCHEN_RECIPES.forEach { r ->
+            val now = r.word == k.model
+            Row(Modifier.fillMaxWidth().clickable { picked = if (picked == r.word) null else r.word }.padding(vertical = Space.sm),
+                verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(picked == r.word, { picked = if (picked == r.word) null else r.word })
+                Spacer(Modifier.width(Space.sm))
+                Column(Modifier.weight(1f)) {
+                    Text(r.title + if (now) " (in use)" else "", style = MaterialTheme.typography.titleSmall, color = t.text)
+                    Text(r.summary, style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+                }
+            }
+            if (picked == r.word) {
+                if (now) Prose("Your TomTom is using this profile.")
+                else if (features.isNotEmpty()) RecipeDetails(app.mapstotom.core.compareRecipe(features, r, specs))
+                if (!now) {
+                    Spacer(Modifier.height(Space.sm))
+                    if (k.canChooseModel) PrimaryButton("Use this profile", { onChoose(r.word) }, enabled = idle)
+                    else k.blocked?.let { Prose(it) }
+                }
+                Spacer(Modifier.height(Space.md))
+            }
+        }
+        Spacer(Modifier.height(Space.xs))
+        Text("Feature lists were measured from NavCore 9.541 on a ONE v4. Other versions and devices can differ.",
+            style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+    }
+}
+
+@Composable
+private fun RecipeDetails(c: app.mapstotom.core.RecipeChange) {
+    val t = LocalTokens.current
+    @Composable fun group(title: String, rows: List<Pair<String, String>>) {
+        if (rows.isEmpty()) return
+        Spacer(Modifier.height(Space.sm))
+        Text(title, style = MaterialTheme.typography.labelLarge, color = t.text)
+        rows.forEach { (name, what) ->
+            Text(if (name.isEmpty()) what else "$name: $what", Modifier.padding(top = Space.xs), style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+        }
+    }
+    Column(Modifier.padding(start = Space.xl)) {
+        group("Watch out", c.warnings.map { "" to it })
+        group("You'd gain", c.gains.map { it.name to it.what })
+        group("You'd lose", c.losses.map { it.name to it.what })
+        group("Shown, but won't work on your TomTom", c.noHardware.map { it.name to (it.missing ?: it.what) })
+        group("Goes away, but you won't miss it", c.noRealLoss.map { it.name to (it.missing ?: it.what) })
+    }
+}
 
 @Composable
 private fun AddonsSection(state: AppState, a: Addons, idle: Boolean) {

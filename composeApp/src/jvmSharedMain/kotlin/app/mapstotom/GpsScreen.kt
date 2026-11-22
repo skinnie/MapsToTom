@@ -1,6 +1,8 @@
 package app.mapstotom
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +74,33 @@ private fun RolloverHelp(state: AppState, chip: Chip) {
 private const val TTCONV_PAGE = "https://github.com/treysis/TTconv"
 private const val RIMA_LOCK_FIX = "https://www.rima-lock.com/tomtom-urban-rider-K3-WNRO-fix.htm#and_here_is_the_fix"
 
+/** QuickGPSFix over the car link, for when no TomTom is on USB. */
+@Composable
+private fun CarGpsPanel(state: AppState) {
+    val t = LocalTokens.current
+    val known = state.knownTomToms
+    val current = state.carTomTom
+    Panel {
+        Text("QuickGPSFix", style = MaterialTheme.typography.titleMedium, color = t.text)
+        Spacer(Modifier.height(Space.xs))
+        if (known.size > 1) {
+            Overline("Send to")
+            Spacer(Modifier.height(Space.sm))
+            known.forEach { k ->
+                CheckRow(k.key == current?.key, { on -> if (on) state.carTomTomKey = k.key }, k.label, Modifier.offset(x = -Space.md))
+            }
+        } else Text(current?.let { "TomTom: ${it.label}" } ?: "No TomTom detected yet. Connect it through the car link, or by USB once.",
+            style = MaterialTheme.typography.bodyMedium, color = if (current != null) t.text else t.textMuted)
+        Spacer(Modifier.height(Space.sm))
+        PrimaryButton("Send", { state.sendQuickFix() }, enabled = state.busy == null && current != null,
+            icon = Icons.Filled.Bluetooth, busy = state.busy == "Preparing QuickGPSFix…", busyText = "Sending…")
+        Spacer(Modifier.height(Space.xs))
+        Text("Helps the TomTom find satellites faster for the next 7 days. Sends by Bluetooth through the car link.",
+            style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+        JobFeedback(state, Job.GPS)
+    }
+}
+
 private class Check(val status: Status, val title: String, val detail: String)
 
 @Composable
@@ -80,6 +109,7 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val d = state.device
     if (d == null) {
         ScreenHeader("GPS health", "Checks the satellite data, the 2019 date fix and the clock on the TomTom.")
+        if (state.platform.carLink != null) { CarGpsPanel(state); Spacer(Modifier.height(Space.lg)) }
         NeedDevice(state); return
     }
     val load by produceLoad(d, state.gen) {
@@ -110,10 +140,10 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val quick = when {
         chip.quickFixProvider == null -> Check(Status.NONE, "QuickGPSFix", "Not available for this GPS chip.")
         v.quickFix.files.isEmpty() -> Check(Status.WARN, "QuickGPSFix not installed", "The first fix takes longer without it.")
-        qfDamaged -> Check(Status.BAD, "QuickGPSFix is damaged", "The lto.dat checksum fails. Update it.")
+        qfDamaged -> Check(Status.BAD, "QuickGPSFix is damaged", "The lto.dat checksum fails. Send a new one.")
         qfIgnored -> Check(Status.BAD, "QuickGPSFix not used by the GPS",
-            "This GPS program has the 2019 week bug and ignores TomTom's file as it is. Update it: MapsToTom adjusts it.")
-        exp == null -> Check(Status.WARN, "QuickGPSFix of unknown age", "Update it to be sure.")
+            "This GPS program has the 2019 week bug and ignores TomTom's file as it is. Send a new one: MapsToTom adjusts it.")
+        exp == null -> Check(Status.WARN, "QuickGPSFix of unknown age", "Send a new one to be sure.")
         exp.isBefore(Instant.now()) -> Check(Status.WARN, "QuickGPSFix expired", "Expired on ${AppState.fmt(exp)}.")
         else -> Check(Status.OK, "QuickGPSFix up to date",
             "Valid until ${AppState.fmt(exp)}." + if (qfAdjusted) " Adjusted for this GPS program's 2019 week bug." else "")
@@ -161,8 +191,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
             StatusRow(quick.status, quick.title, quick.detail) {
                 if (chip.quickFixProvider != null) {
                     val busy = state.busy == "Downloading QuickGPSFix…"
-                    if (quick.status == Status.OK) SecondaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
-                    else PrimaryButton("Update", { state.updateQuickFix() }, enabled = idle, busy = busy, busyText = "Updating…")
+                    if (quick.status == Status.OK) SecondaryButton("Send", { state.sendQuickFix() }, enabled = idle, busy = busy, busyText = "Sending…")
+                    else PrimaryButton("Send", { state.sendQuickFix() }, enabled = idle, busy = busy, busyText = "Sending…")
                 }
             }
             v.almanac?.takeIf { ALMANAC_FEATURE || !it.builtIn }?.let { a ->

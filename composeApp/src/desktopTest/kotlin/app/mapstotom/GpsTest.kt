@@ -64,6 +64,22 @@ class GpsTest {
         java.security.MessageDigest.getInstance("MD5").digest(d.copyOfRange(0x1c, d.size)).copyInto(d, 0x0c); return d
     }
 
+    @Test fun carLinkQuickFixPutsTheExpiryLastAndMovesDatesLikeUsb() {
+        val week = 604_800L
+        val lto = fakeLto(listOf(2442 * week))
+        val q = QuickFix(mapOf("lto.dat" to lto, "ee_meta.txt" to "Expiry=1".toByteArray()), null)
+        val (files, note) = quickFixCarFiles(q, Chip.GL1, "Global Locate GLL 185.5001.041")
+        assertEquals(listOf("ephem/lto.dat", "ephem/ee_meta.txt"), files.map { it.first })
+        assertNotNull(note); assertTrue(ltoValid(files[0].second))
+        assertEquals(1418, (ltoEpochs(files[0].second).first().second / week).toInt())
+        val (same, none) = quickFixCarFiles(q, Chip.GL2, null)
+        assertNull(none); assertContentEquals(lto, same[0].second)
+        val sirf = QuickFix(mapOf("packedephemeris.ee" to byteArrayOf(1), "ee_meta.txt" to byteArrayOf(2)), null)
+        assertEquals("ephem/packedephemeris.ee", quickFixCarFiles(sirf, Chip.SIRF, null).first[0].first)
+        assertFails { quickFixCarFiles(q, Chip.AR1520, null) }
+        assertFails { quickFixCarFiles(q, Chip.SIRF, null) }
+    }
+
     @Test fun installQuickFixAdjustsOnlyTestedGl1() {
         val week = 604_800L
         val gpsNow = 2442 * week + 500_000

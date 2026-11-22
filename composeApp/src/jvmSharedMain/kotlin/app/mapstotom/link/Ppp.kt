@@ -259,6 +259,11 @@ private interface Upstream {
 }
 
 /** One TomTom-initiated TCP connection. All state is guarded by `this`. */
+private const val MAX_SEGMENT = 512
+private const val MAX_IN_FLIGHT = 1024
+private const val MAX_QUEUED = 2048
+private const val STALL_MS = 30_000L
+
 internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPeer: Long, private val mss: Int) {
     private var rcvNxt = (isnPeer + 1) and M
     private val iss = System.currentTimeMillis() and M
@@ -288,6 +293,7 @@ internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPe
                 override fun write(b: ByteArray, off: Int, len: Int) {
                     if (closed) throw IOException("connection closed")
                     fromUpstream(b.copyOfRange(off, off + len))
+                    waitForRoom()
                 }
             }
             up = object : Upstream {
@@ -341,6 +347,20 @@ internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPe
     }
     }
 
+    /** Holds a large reply back until the TomTom has acknowledged most of what is queued, so progress is real. */
+    private fun waitForRoom() {
+        synchronized(this) {
+            var unacked = outBytes.size
+            var since = now()
+            while (!closed && outBytes.size > MAX_QUEUED) {
+                (this as Object).wait(250)
+                if (outBytes.size < unacked) { unacked = outBytes.size; since = now() }
+                else if (now() - since > STALL_MS) throw IOException("the TomTom stopped acknowledging")
+            }
+            if (closed) throw IOException("connection closed")
+        }
+    }
+
     private fun upstreamDone() { synchronized(this) { upstreamEof = true; push() } }
 
     // ---- peer side ----
@@ -354,6 +374,7 @@ internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPe
                 if (sndUna == iss) { acked -= 1; sndUna = (sndUna + 1) and M }     // our SYN
                 val n = minOf(acked, outBytes.size.toLong()).toInt()
                 outBytes = outBytes.copyOfRange(n, outBytes.size)
+                (this as Object).notifyAll()
                 sndUna = (sndUna + n) and M
                 if (acked > n && finOutSent) {                                     // our FIN acked
                     sndUna = (sndUna + 1) and M
@@ -385,8 +406,9 @@ internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPe
         val base = (sndUna + if (sndUna == iss) 1 else 0) and M
         var sent = ((sndNxt - base) and M).toInt()
         if (finOutSent) return
-        while (sent < outBytes.size && sent < peerWnd) {
-            val len = minOf(mss, peerWnd - sent, outBytes.size - sent)
+        val window = minOf(peerWnd, MAX_IN_FLIGHT)   // Android's Bluetooth stack drops the link when flooded
+        while (sent < outBytes.size && sent < window) {
+            val len = minOf(mss, MAX_SEGMENT, window - sent, outBytes.size - sent)
             send(ACK or PSH, outBytes.copyOfRange(sent, sent + len), (base + sent) and M)
             sent += len
             sndNxt = (base + sent) and M
@@ -436,6 +458,7 @@ internal class TcpConn(private val link: PppLink, private val key: TcpKey, isnPe
             if (closed) return
             closed = true
             u = up
+            (this as Object).notifyAll()
         }
         u?.close()
         link.tcp.remove(key)

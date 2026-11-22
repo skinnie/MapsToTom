@@ -15,6 +15,6 @@ object LinkWiring {
     fun liveService(setting: (String) -> String?, dir: File): LocalService {
         val net = RealNet()
         return LiveServer(net, { setting(CarLinkSettings.TRAFFIC_KEY)?.takeIf { it.isNotBlank() } },
-            StoredFuelSets(dir, net, CarLinkState::log), FileLiveStore(dir), CarLinkState::log, CarOutbox(File(dir, "outbox")))
+            StoredFuelSets(dir, net, CarLinkState::log), FileLiveStore(dir), CarLinkState::log, CarOutbox.at(File(dir, "outbox")))
     }
 }

@@ -92,10 +92,20 @@ and `a442414b` (8.414).
 `bin/obexftpd` is only in 9.510 Downunder and 9.701 SE. MapsToTom's Bluetooth delivery therefore uses its own small
 helper instead.
 
-## Ideas for the kitchen
+## Kitchen
 
-- Show what the card runs: NavCore, system, GPS program, model and what the start-up log says it used.
-- Set the model and switches from a menu, with a clear reason for each.
+In the app now: what the card runs (NavCore, system, GPS program, model, what the last start used), choosing the
+device model, and a checked full backup and restore.
+
+Profiles were measured, not guessed: NavCore 9.541 ran in the emulator with a ONE v4's hardware flags and every model id
+from 1 to 70, and the `Features` line it wrote to `ttgo.bif` was compared. With `bton`, id 24 matches the real device's
+list exactly. Only ids 24 (x40) and 36 (`x40light3`) have `LiveServices`. Id 36 is the closest to the original ONE (id 15):
+it adds Live and local search and drops photos, but it also has no `PhoneFeatures`. It hasn't been tried on a real device.
+NavCore's `overridesettings.ini` isn't opened in the first 40 s of a start, and no sample or documentation was found.
+
+Ideas for later:
+
+- Other `setconfig` switches, each with a clear reason. `cleanflash`, `delgns` and `delmap` delete data, so they need care.
 - Recommend the lightest NavCore that supports the device, map and wanted features.
 - Never touch map licences or activation.
 

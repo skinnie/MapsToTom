@@ -11,7 +11,7 @@ For TomTom ONE, XL, GO and Rider models that show up as a USB drive with a `ttgo
 
 One app for **Windows, macOS, Linux and Android**, with the same screens everywhere. 
 <p>
-  <img src="docs/send.png" alt="Send screen: a Google Maps route as a list of stops ready to save to the TomTom" width="49%">
+  <img src="docs/send.png" alt="Itinerary screen: a Google Maps route as a list of stops ready to save to the TomTom" width="49%">
   <img src="docs/gps.png" alt="GPS health screen: QuickGPSFix and the 2019 date fix both in place" width="49%">
 </p>
 <p><img src="docs/phone-gps-dark.png" alt="GPS health screen on a phone in dark mode" width="240"></p>
@@ -38,6 +38,20 @@ The desktop versions include their own Java runtime; nothing else is needed.
   The tablet must supply power over USB, and the TomTom must accept it as a computer: try it
   first in the Files app.
 
+**Do I need root?** No, root is optional:
+
+| How you connect | Root needed? |
+|---|---|
+| Computer (Windows, macOS, Linux) | No |
+| The TomTom's SD card in a card reader | No |
+| Car link over Bluetooth (Live services, sending routes and POIs) | No |
+| USB OTG, when Android shows the TomTom as a drive | No: press **Choose…** and pick it |
+| USB OTG, when Android doesn't show it | Yes, or use a computer or card reader instead |
+
+Older TomToms have no partition table on their disk, and many Android versions refuse to open a
+disk like that. With root, MapsToTom can mount it by itself. Without root, set the TomTom up once
+from a computer: after that the car link works over Bluetooth with no cable.
+
 Always eject the TomTom (or switch it off) before unplugging it.
 
 ## Send places and routes
@@ -50,10 +64,10 @@ Always eject the TomTom (or switch it off) before unplugging it.
      address bar and paste it. Its stops come in order, and its route option (such as *avoid tolls*)
      is kept: see "Same roads" below.
 2. Edit the list: reorder, rename (tap the name), switch Stop/Via, remove.
-3. Save:
-   - **Save route (Itinerary)** writes `itn/<name>.itn`.
+3. Send. Each **Send** uses USB when the TomTom is plugged in, and Bluetooth through the car link when it isn't:
+   - **Send** on the **Itinerary** tab writes `itn/<name>.itn`.
      On the TomTom: *Itinerary planning → Options → Load itinerary*.
-   - **Save as POIs** adds the stops to a POI category (default "Google Maps") in the active map,
+   - **Send** in **Add places** on the **POIs** tab adds the stops to a POI category (default "Google Maps") in the active map,
      with a pin icon. Points already in it are skipped.
      On the TomTom: *Navigate to → Point of Interest*.
    - **Export .itn…** saves the itinerary anywhere.
@@ -150,9 +164,20 @@ If your TomTom isn't fixed, try these in order:
 The GPS fix (QuickGPSFix) doesn't need a patched NavCore. MapsToTom asks before changing the
 TomTom's GPS software and offers to back up the files first.
 
+## Backup and NavCore kitchen
+
+On these TomToms the card holds everything: system, NavCore, GPS programs, maps and settings. So the
+**Settings** tab's **Back up** is a full device backup. Every file is read back after copying, empty
+folders are kept, and a list of checksums is saved with it. **Restore** checks the backup first, so
+a damaged or unfinished one changes nothing.
+
+The **NavCore kitchen**, also in the Settings tab, shows what the TomTom really runs and which device
+NavCore acts as. On community systems with `Config/setconfig.txt` you can change that device model.
+It warns you and offers a backup first, and it takes effect at the next full start.
+
 ## Routes from GPX
 
-**Open .itn or .gpx** on the Send screen loads a route from Komoot, Strava, RideWithGPS or any
+**Open .itn or .gpx** on the Itinerary tab loads a route from Komoot, Strava, RideWithGPS or any
 GPX file. The line is cut down to the 48 points older TomToms load, keeping the points that
 shape it most (tested on real rides: at most about 200 m off the original line). Start and
 finish are stops; the rest are pass-through points the TomTom follows without announcing.
@@ -219,25 +244,27 @@ finish are stops; the rest are pass-through points the TomTom follows without an
 
 ## Car link (Android, experimental)
 
+Once the TomTom connects, the whole app knows which device it is. Its Bluetooth helper reports the model, GPS chip and GPS program version, so the header shows it, every **Send** can use it, and QuickGPSFix is prepared for that GPS without a USB connection. MapsToTom remembers up to 8 TomToms and picks the one connected. The helper on the card must be the current version.
+
 The phone plays the TomTom's Bluetooth mobile phone, so a NavCore 9 TomTom gets Live services in the
 car with nothing to host: the app is the modem (Bluetooth Dial-up Networking, AT commands), runs the
 PPP link itself, and answers the Live services on 192.168.77.1:8080 from public data:
 
 - **Traffic:** TomTom's traffic incidents, with your own free key from developer.tomtom.com
-  (Car tab). Without a key the TomTom gets no incidents.
+  (Car link tab). Without a key the TomTom gets no incidents.
 - **Weather:** Open-Meteo, no key.
 - **Fuel prices:** today's prices for the fuel set installed from this phone (POIs tab), from the
   same open sources. Portugal's source is slow, so its first answer of the hour may come late.
 - Anything else the TomTom opens goes to the internet through the phone.
 
 The TomTom's card needs, once: a NavCore patched for the link and discovery files pointing at
-`192.168.77.1:8080`. The **Device** tab does both: it warns you, offers a backup, keeps the original on the card and can
+`192.168.77.1:8080`. The **Settings** tab does both: it warns you, offers a backup, keeps the original on the card and can
 undo it. It was tested on NavCore 9.541 (build 3145439.2). Another NavCore is accepted, untested and
 at your own risk, if its code matches at every place the patch writes to. If it doesn't match, the
 patch would overwrite the wrong code, so MapsToTom won't apply it. First check TomTom HOME for an
 update. If it has none, look for a later NavCore on GPS and navigation device forums (unofficial, at your own risk) and come back to check it. The patch works with **9.5xx NavCores**
 (checked: 9.510, 9.530, 9.541). Other 8.x and 9.x versions with the Live code need a port, which you can build with the
-[porting guide](docs/navcore-survey.md#porting-the-patch). 7.x and older don't have the Live code. Map licences aren't touched. Then: Car tab, Start, Make phone visible, and pair from the TomTom's phone
+[porting guide](docs/navcore-survey.md#porting-the-patch). 7.x and older don't have the Live code. Map licences aren't touched. Then: Car link tab, Start, Make phone visible, and pair from the TomTom's phone
 menu with PIN 0000. Android shows a notification while the link runs. Phones that already offer
 their own Bluetooth dial-up (some Samsungs) may be picked instead of MapsToTom.
 Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for

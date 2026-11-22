@@ -55,7 +55,7 @@ class ScreenshotTest {
         scene.close()
     }
 
-    /** The whole Device tab (add-ons, power, backup) at desktop and phone width; needs -Pm2t.device. */
+    /** The whole Settings tab (add-ons, power, backup) at desktop and phone width; needs -Pm2t.device. */
     @Test fun renderDeviceTall() {
         val dir = out ?: return
         val dev = deviceDir?.takeIf { it.isDirectory } ?: return
@@ -63,7 +63,7 @@ class ScreenshotTest {
         for ((name, wh) in mapOf("desktop" to (1100 to 1700), "phone" to (412 to 2300))) {
             val state = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined))
             state.connect(LocalFs(dev))
-            val scene = ImageComposeScene(wh.first, wh.second, Density(1f)) { App(state, dark = false, startTab = Tab.DEVICE) }
+            val scene = ImageComposeScene(wh.first, wh.second, Density(1f)) { App(state, dark = false, startTab = Tab.SETTINGS) }
             var t = 0L
             repeat(12) { scene.render(t); t += 100_000_000; Thread.sleep(60) }
             File(dir, "$name-device-tall.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
@@ -108,12 +108,12 @@ class ScreenshotTest {
         }
         shot(done, Tab.POIS, "job-done")
         val ejected = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply { set("ejected", true); call("needsRestart") }
-        shot(ejected, Tab.SEND, "ejected", 412, 900)
+        shot(ejected, Tab.ITINERARY, "ejected", 412, 900)
         val route = AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)).apply {
             connect(LocalFs(dev)); points.addAll(parseInput(this@ScreenshotTest.route, null).points); followRoads = true
         }
-        shot(route, Tab.SEND, "phone-send-tall", 412, 2000)
-        shot(AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)), Tab.SEND, "send-empty", 1100, 1100)
+        shot(route, Tab.ITINERARY, "phone-send-tall", 412, 2000)
+        shot(AppState(FakePlatform, CoroutineScope(Dispatchers.Unconfined)), Tab.ITINERARY, "send-empty", 1100, 1100)
     }
 
     /** The Appearance section with each accent, light and dark, and a Send screen in each, at phone width. */
@@ -125,7 +125,7 @@ class ScreenshotTest {
             state.changeAccent(accent)
             state.changeThemeMode(if (dark) app.mapstotom.ui.ThemeMode.DARK else app.mapstotom.ui.ThemeMode.LIGHT)
             state.points.addAll(parseInput(route, null).points)
-            for (tab in listOf(Tab.DEVICE, Tab.SEND)) {
+            for (tab in listOf(Tab.SETTINGS, Tab.ITINERARY)) {
                 val scene = ImageComposeScene(412, 1100, Density(1f)) { App(state, dark = !dark, startTab = tab) } // system says the opposite: the choice must win
                 var t = 0L
                 repeat(8) { scene.render(t); t += 100_000_000; Thread.sleep(40) }
@@ -133,6 +133,26 @@ class ScreenshotTest {
                     .writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
                 scene.close()
             }
+        }
+    }
+
+    /** The tabs as on a phone with the car link and no TomTom on USB: every Send goes by Bluetooth. */
+    @Test fun renderCarLinkTabs() {
+        val dir = out ?: return
+        dir.mkdirs()
+        val car = object : Platform by FakePlatform {
+            override val carLink = object : app.mapstotom.link.CarLinkControl {
+                override fun start() {}; override fun stop() {}; override fun makeVisible() {}
+            }
+        }
+        for ((sizeName, wh) in mapOf("wide" to (1100 to 1500), "phone" to (412 to 1500))) for (tab in Tab.entries) {
+            val state = AppState(car, CoroutineScope(Dispatchers.Unconfined))
+            state.points.addAll(parseInput(route, null).points)
+            val scene = ImageComposeScene(wh.first, wh.second, Density(1f)) { App(state, dark = false, startTab = tab) }
+            var t = 0L
+            repeat(8) { scene.render(t); t += 100_000_000; Thread.sleep(40) }
+            File(dir, "carlink-$sizeName-${tab.name.lowercase()}.png").writeBytes(scene.render(t).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            scene.close()
         }
     }
 

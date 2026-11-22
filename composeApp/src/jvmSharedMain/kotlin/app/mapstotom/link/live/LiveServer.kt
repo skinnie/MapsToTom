@@ -54,7 +54,8 @@ class LiveServer(
                 outbox: app.mapstotom.link.CarOutbox? = null) :
         this(LiveConfig(), TomTomSource(tomtomKey, net, log = log), Weather.openMeteo(net), fuel, store, net, log, outbox)
 
-    class Reply(val code: Int, val type: String, val body: ByteArray)
+    /** [sending]: the card path of a file in this reply, so the app can show its progress. */
+    class Reply(val code: Int, val type: String, val body: ByteArray, val sending: String? = null)
 
     private val hercules = Hercules(traffic, net, log)
     private val portland = Portland(traffic, log)
@@ -71,7 +72,22 @@ class LiveServer(
             log("live: ${req.method} ${req.path}: ${e.message}"); Reply(200, "text/plain", XMsg.reply(emptyList(), 204))
         }
         val head = "HTTP/1.0 ${r.code} OK\r\nContent-Type: ${r.type}\r\nContent-Length: ${r.body.size}\r\nConnection: close\r\n\r\n"
-        output.write(head.toByteArray(Charsets.US_ASCII)); output.write(r.body); output.flush()
+        output.write(head.toByteArray(Charsets.US_ASCII))
+        if (r.sending == null) output.write(r.body) else sendWithProgress(output, r)
+        output.flush()
+    }
+
+    private fun sendWithProgress(output: OutputStream, r: Reply) {
+        val state = app.mapstotom.link.CarLinkState
+        state.transferStart(r.sending!!, r.body.size)
+        try {
+            var off = 0
+            while (off < r.body.size) {
+                val n = minOf(1024, r.body.size - off)
+                output.write(r.body, off, n); output.flush()
+                off += n; state.transferSent(off)
+            }
+        } catch (e: Exception) { state.transferEnd(); throw e }
     }
 
     fun respond(method: String, path: String, body: ByteArray = ByteArray(0)): Reply {
@@ -86,9 +102,14 @@ class LiveServer(
             }
             return Reply(200, "application/octet-stream", out)
         }
-        if (p == "/m2t/next") return Reply(200, "application/octet-stream", app.mapstotom.link.CarOutbox.frame(outbox?.next()))
+        if (p == "/m2t/next") app.mapstotom.link.CarLinkState.report(app.mapstotom.link.CarDeviceReport.fromQuery(query))
+        if (p == "/m2t/next") {
+            val item = outbox?.next(gps = "caps=ephem" in query.split('&'))
+            if (item == null) app.mapstotom.link.CarLinkState.transferEnd()
+            return Reply(200, "application/octet-stream", app.mapstotom.link.CarOutbox.frame(item), item?.path)
+        }
         if (p == "/m2t/done") {
-            query.split('&').firstOrNull { it.startsWith("id=") }?.substring(3)?.toLongOrNull()?.let { outbox?.done(it); log("car link: file $it saved on the TomTom") }
+            query.split('&').firstOrNull { it.startsWith("id=") }?.substring(3)?.toLongOrNull()?.let { outbox?.done(it); app.mapstotom.link.CarLinkState.transferEnd(); log("car link: file $it saved on the TomTom") }
             return text("OK".toByteArray())
         }
         return text(when (p) {

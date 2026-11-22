@@ -21,8 +21,7 @@ class ChipInfo(val chip: Chip, val firmware: String, val reason: String)
 fun detectChip(fs: DeviceFs, bif: Map<String, String> = readBif(fs)): ChipInfo {
     val fw = bif["GPSFirmwareVersion"].orEmpty()
     fs.read("gl/gpstype.txt")?.toString(Charsets.US_ASCII)?.trim()?.toIntOrNull()?.let { code ->
-        val chip = when (code) { 128, 129 -> Chip.GL1; 130 -> Chip.GL2; 65 -> Chip.AR1520; else -> Chip.SIRF }
-        return ChipInfo(chip, fw, "chip code $code reported by the TomTom")
+        return ChipInfo(chipFromCode(code), fw, "chip code $code reported by the TomTom")
     }
     if (fw.startsWith("GSW", ignoreCase = true)) return ChipInfo(Chip.SIRF, fw, "GPS firmware $fw")
     val major = fw.substringBefore('.').trim().toIntOrNull()
@@ -35,6 +34,9 @@ fun detectChip(fs: DeviceFs, bif: Map<String, String> = readBif(fs)): ChipInfo {
     if (fs.exists("ephem/lto.dat")) return ChipInfo(Chip.GL1, fw, "Global Locate QuickGPSFix file on the device (GL1 or GL2)")
     return ChipInfo(Chip.UNKNOWN, fw, "no GPS firmware version in ttgo.bif")
 }
+
+/** The chip for a /proc/barcelona/gpstype code. */
+fun chipFromCode(code: Int) = when (code) { 128, 129 -> Chip.GL1; 130 -> Chip.GL2; 65 -> Chip.AR1520; else -> Chip.SIRF }
 
 fun md5(data: ByteArray): String = MessageDigest.getInstance("MD5").digest(data).joinToString("") { "%02x".format(it) }
 
@@ -70,16 +72,33 @@ fun downloadQuickFix(chip: Chip, net: Net): QuickFix {
 /** Put QuickGPSFix on the device. On a GL1 whose GPS program has the week bug (see [ltoWeekShift])
  *  lto.dat's dates are first moved to that program's calendar. Returns a note when that happened. */
 fun installQuickFix(fs: DeviceFs, q: QuickFix, chip: Chip): String? {
-    var files = q.files
-    var note: String? = null
-    val lto = files["lto.dat"]
-    val shift = if (lto != null && chip == Chip.GL1) ltoWeekShift(lto, gl1EngineVersion(fs)) else 0
-    if (lto != null && shift != 0) {
-        files = files + ("lto.dat" to shiftLto(lto, shift))
-        note = "Adjusted for the 2019 week bug in this TomTom's GPS program, which would otherwise ignore it."
-    }
+    val engine = if (q.files.containsKey("lto.dat") && chip == Chip.GL1) gl1EngineVersion(fs) else null
+    val (files, note) = adaptQuickFix(q, chip, engine)
     files.forEach { (name, data) -> fs.write("ephem/$name", data) }
     return note
+}
+
+/** The files for a TomTom with this chip and GPS program [engine], and a note when the dates had to be moved. */
+private fun adaptQuickFix(q: QuickFix, chip: Chip, engine: String?): Pair<Map<String, ByteArray>, String?> {
+    val lto = q.files["lto.dat"]
+    val shift = if (lto != null && chip == Chip.GL1) ltoWeekShift(lto, engine) else 0
+    if (lto == null || shift == 0) return q.files to null
+    return (q.files + ("lto.dat" to shiftLto(lto, shift))) to
+        "Adjusted for the 2019 week bug in this TomTom's GPS program, which would otherwise ignore it."
+}
+
+/** QuickGPSFix as card paths for the car link: the orbit data first and ee_meta.txt last, so the expiry on the card
+ *  only changes after the data it describes has been saved. */
+fun quickFixCarFiles(q: QuickFix, chip: Chip, engine: String?): Pair<List<Pair<String, ByteArray>>, String?> {
+    val dataName = when (chip.quickFixProvider) {
+        "globalLocate" -> "lto.dat"
+        "SIRFStarIII" -> "packedephemeris.ee"
+        else -> error("No QuickGPSFix exists for ${chip.label}")
+    }
+    require(q.files.containsKey(dataName)) { "The download has no $dataName for ${chip.label}" }
+    val meta = requireNotNull(q.files["ee_meta.txt"]) { "The download has no expiry date" }
+    val (files, note) = adaptQuickFix(q, chip, engine)
+    return listOf("ephem/$dataName" to files.getValue(dataName), "ephem/ee_meta.txt" to meta) to note
 }
 
 fun removeQuickFix(fs: DeviceFs) {

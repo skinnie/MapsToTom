@@ -5,7 +5,8 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Rooted devices only: mounts a USB TomTom that Android itself refuses.
+ * Optional, for rooted devices: mounts a USB TomTom that Android refuses or keeps for itself. Without root the app uses
+ * Android's folder picker (Choose drive).
  *
  * Old TomToms (ONE, XL, GO) carry FAT straight on the disk with no partition table, which
  * Android's storage service rejects, and they won't boot if the card is given one. With root
@@ -31,7 +32,7 @@ class RootUsb(private val ctx: Context) {
         dir.mkdirs()
         val r = runRoot(MOUNT_SCRIPT, dir.absolutePath, android.os.Process.myUid().toString())
         note = when {
-            r == null -> "No root access. In KernelSU, open Superuser and allow MapsToTom."
+            r == null -> "Press Choose drive and pick the TomTom. If Android doesn't list it, use a computer or a card reader."
             isMounted() && hasBif() -> null
             "NODISK" in r -> "No USB drive found. Plug the TomTom in with an OTG adapter and choose \"Connect to computer\" on it."
             "HELD" in r -> "Android is still using this drive, so MapsToTom can't open it. Unplug it and plug it in again."
@@ -77,12 +78,18 @@ class RootUsb(private val ctx: Context) {
             # Android 14 mounts partitionless FAT itself. A second mount would share its superblock and keep its owner,
             # so the app couldn't read it: ask vold to let go first.
             release() {
-              dev=${'$'}(cat /sys/block/${'$'}1/dev); maj=${'$'}{dev%:*}; min=${'$'}{dev#*:}; next=${'$'}((min + 1))
-              grep -Eq "public:${'$'}maj,(${'$'}min|${'$'}next) " /proc/1/mounts || return 0
-              vdc volume unmount "public:${'$'}maj,${'$'}min" >/dev/null 2>&1
-              vdc volume unmount "public:${'$'}maj,${'$'}next" >/dev/null 2>&1
+              dev=${'$'}(cat /sys/block/${'$'}1/dev); maj=${'$'}{dev%:*}; min=${'$'}{dev#*:}
+              held_ids() {
+                grep -oE "public:${'$'}maj,[0-9]+" /proc/1/mounts | sort -u | while read -r v; do
+                  m=${'$'}{v##*,}
+                  [ "${'$'}m" -ge "${'$'}min" ] && [ "${'$'}m" -lt ${'$'}((min + 16)) ] && echo "${'$'}v"
+                done
+              }
+              ids=${'$'}(held_ids)
+              [ -n "${'$'}ids" ] || return 0
+              for v in ${'$'}ids; do sm unmount "${'$'}v" >/dev/null 2>&1; done
               i=0
-              while [ ${'$'}i -lt 40 ] && grep -Eq "public:${'$'}maj,(${'$'}min|${'$'}next) " /proc/1/mounts; do sleep 0.25; i=${'$'}((i + 1)); done
+              while [ ${'$'}i -lt 40 ] && [ -n "${'$'}(held_ids)" ]; do sleep 0.25; i=${'$'}((i + 1)); done
             }
             for d in /sys/block/sd*; do
               [ -e "${'$'}d" ] || continue

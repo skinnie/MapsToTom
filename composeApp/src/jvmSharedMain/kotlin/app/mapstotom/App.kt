@@ -19,15 +19,15 @@ import androidx.compose.ui.unit.dp
 import app.mapstotom.ui.*
 
 enum class Tab(val label: String, val icon: ImageVector) {
-    SEND("Send", Icons.Filled.Send),
-    GPS("GPS", Icons.Filled.SatelliteAlt),
+    ITINERARY("Itinerary", Icons.Filled.Route),
     POIS("POIs", Icons.Filled.Place),
-    DEVICE("Device", Icons.Filled.Tune),
-    CAR("Car", Icons.Filled.DirectionsCar),
+    GPS("GPS", Icons.Filled.SatelliteAlt),
+    CAR("Car link", Icons.Filled.DirectionsCar),
+    SETTINGS("Settings", Icons.Filled.Tune),
 }
 
 @Composable
-fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
+fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.ITINERARY) {
     // [dark] is the system's setting; the user's Auto/Light/Dark choice decides.
     MapsToTomTheme(state.themeMode.isDark(dark), state.accent) {
         val t = LocalTokens.current
@@ -60,11 +60,11 @@ fun App(state: AppState, dark: Boolean = false, startTab: Tab = Tab.SEND) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         val inner: @Composable ColumnScope.() -> Unit = {
                             when (tab) {
-                                Tab.SEND -> SendScreen(state, wide)
-                                Tab.GPS -> GpsScreen(state)
+                                Tab.ITINERARY -> ItineraryScreen(state, wide)
                                 Tab.POIS -> PoiScreen(state, wide)
-                                Tab.DEVICE -> DeviceScreen(state)
+                                Tab.GPS -> GpsScreen(state)
                                 Tab.CAR -> CarScreen(state)
+                                Tab.SETTINGS -> SettingsScreen(state)
                             }
                         }
                         Column(
@@ -100,18 +100,20 @@ private fun DeviceStrip(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
     val t = LocalTokens.current
     val d = state.device
     val looking = state.busyKey == Job.DETECT
+    val carReport by app.mapstotom.link.CarLinkState.device.collectAsState()
+    val car = state.carTomTom?.takeIf { carReport != null && d == null }
     Column {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val narrow = maxWidth < 480.dp
         Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.sm), verticalAlignment = Alignment.CenterVertically) {
             // On a phone the chip shrinks to its icon when connected, so the TomTom's name has room.
-            ConnectionChip(if (looking) Connection.LOOKING else if (d != null) Connection.ON else Connection.OFF, iconOnly = narrow && d != null && !looking)
+            ConnectionChip(if (looking) Connection.LOOKING else if (d != null) Connection.ON else if (car != null) Connection.CAR else Connection.OFF, iconOnly = narrow && d != null && !looking)
             Spacer(Modifier.width(Space.md))
             Text(
                 if (d != null) d.model + "  ·  " + listOfNotNull(d.navcore?.let { "NavCore $it" }, d.mapFolder).joinToString("  ·  ")
-                else "",
+                else car?.label ?: "",
                 Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                color = if (d != null) t.text else t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (d != null || car != null) t.text else t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             if (d != null && state.platform.canEject(d.fs)) TextButton(onClick = { state.eject() }, enabled = state.busy == null) { Text("Eject") }
             else {
@@ -121,6 +123,7 @@ private fun DeviceStrip(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
         }
         }
         Hairline()
+        CarTransferBanner(gutter)
         if (state.ejected && d == null) Banner(gutter) {
             StatusNote(Status.OK, "Safe to unplug the TomTom." +
                 if (state.restartPending) " Then restart it to use the changes: hold the power button about 15 seconds." else "",
@@ -134,30 +137,55 @@ private fun DeviceStrip(state: AppState, gutter: androidx.compose.ui.unit.Dp) {
     }
 }
 
+/** On every tab: what is going to the TomTom over the car link, how far along, and the time left. */
+@Composable
+private fun CarTransferBanner(gutter: androidx.compose.ui.unit.Dp) {
+    val t = LocalTokens.current
+    val transfer by app.mapstotom.link.CarLinkState.transfer.collectAsState()
+    val queued by app.mapstotom.link.CarLinkState.queued.collectAsState()
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(transfer != null) { while (transfer != null) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
+    val x = transfer
+    if (x == null && queued == 0) return
+    Banner(gutter) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+            if (x != null) {
+                Text(x.text(maxOf(now, x.startedAt)), style = MaterialTheme.typography.bodyMedium, color = t.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (x.finished) LinearProgressIndicator(Modifier.fillMaxWidth(), color = t.action, trackColor = t.sunken)
+                else LinearProgressIndicator(progress = { x.fraction }, Modifier.fillMaxWidth(), color = t.action, trackColor = t.sunken, drawStopIndicator = {})
+                Text("Keep the TomTom on until this finishes." + if (queued > 1) " ${queued - 1} more waiting." else "",
+                    style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+            } else Text("$queued file${if (queued == 1) "" else "s"} waiting. Sending starts when the TomTom is on the car link.",
+                style = MaterialTheme.typography.bodySmall, color = t.textMuted)
+        }
+    }
+}
+
 @Composable
 private fun Banner(gutter: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = Space.sm)) { content() }
     Hairline()
 }
 
-private enum class Connection { ON, LOOKING, OFF }
+private enum class Connection { ON, CAR, LOOKING, OFF }
 
 /** "Connected" / "Looking…" / "Not connected" as a pill: icon plus words, never colour alone. */
 @Composable
 private fun ConnectionChip(c: Connection, iconOnly: Boolean = false) {
     val t = LocalTokens.current
-    val (bg, fg) = when (c) { Connection.ON -> t.actionSoft to t.onActionSoft; else -> t.sunken to t.textMuted }
+    val (bg, fg) = when (c) { Connection.ON, Connection.CAR -> t.actionSoft to t.onActionSoft; else -> t.sunken to t.textMuted }
     Row(Modifier.background(bg, Radius.pill).padding(horizontal = if (iconOnly) Space.xs + Space.xxs else Space.md, vertical = Space.xs)
         .semantics(mergeDescendants = true) { if (iconOnly) contentDescription = "Connected" },
         verticalAlignment = Alignment.CenterVertically) {
         when (c) {
             Connection.ON -> Icon(Icons.Filled.CheckCircle, null, tint = t.ok, modifier = Modifier.size(16.dp))
+            Connection.CAR -> Icon(Icons.Filled.Bluetooth, null, tint = t.ok, modifier = Modifier.size(16.dp))
             Connection.LOOKING -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = t.action)
             Connection.OFF -> Icon(Icons.Filled.UsbOff, null, tint = t.textMuted, modifier = Modifier.size(16.dp))
         }
         if (iconOnly) return@Row
         Spacer(Modifier.width(Space.xs + Space.xxs))
-        Text(when (c) { Connection.ON -> "Connected"; Connection.LOOKING -> "Looking…"; Connection.OFF -> "Not connected" },
+        Text(when (c) { Connection.ON -> "Connected"; Connection.CAR -> "Car link"; Connection.LOOKING -> "Looking…"; Connection.OFF -> "Not connected" },
             style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1)
     }
 }
@@ -248,7 +276,7 @@ fun DropZone(state: AppState, hint: String, content: @Composable RowScope.() -> 
 fun NeedDevice(state: AppState) {
     Panel {
         StatusRow(Status.NONE, "No TomTom connected",
-            if (state.platform.isAndroid) "Plug the TomTom in with a USB OTG adapter and press Detect. Rooted tablets mount it directly; otherwise choose its drive."
+            if (state.platform.isAndroid) "Plug the TomTom in with a USB OTG adapter, then press Detect or Choose drive and pick it. If Android doesn't list it, use a computer or put its card in a card reader. Root is optional."
             else "Plug the TomTom in by USB. It is found by itself, or choose its drive.") {
             Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 PrimaryButton("Detect", { state.detect() }, enabled = state.busy == null)

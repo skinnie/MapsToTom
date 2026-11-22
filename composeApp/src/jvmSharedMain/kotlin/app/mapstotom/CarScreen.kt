@@ -33,6 +33,8 @@ fun ColumnScope.CarScreen(state: AppState) {
     Spacer(Modifier.height(Space.xl))
     Panel(Modifier.widthIn(max = Space.measure)) {
         Fact("Status", phase.label, when (phase) { Phase.ONLINE -> Status.OK; Phase.OFF -> null; else -> Status.WARN })
+        val report by CarLinkState.device.collectAsState()
+        if (report != null) state.carTomTom?.let { Fact("TomTom", it.label, Status.OK) }
         if (phase != Phase.OFF) Fact("Requests answered", "$requests")
         Spacer(Modifier.height(Space.md))
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {

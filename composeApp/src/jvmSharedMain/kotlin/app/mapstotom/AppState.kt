@@ -54,6 +54,8 @@ class Step(val label: String, userStep: Boolean = false) {
 class Note(val key: String?, val text: String, val error: Boolean, val time: LocalTime)
 
 /** All app state and actions, shared by desktop and Android. Work runs off the UI thread. */
+enum class SendVia { USB, BLUETOOTH }
+
 class AppState(val platform: Platform, private val scope: CoroutineScope, private val net: Net = RealNet()) {
     // ---------------------------------------------------------- status
     var busy by mutableStateOf<String?>(null); private set
@@ -212,6 +214,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
             (if (moved.isEmpty()) "" else " Moved ${moved.size} POI ${if (moved.size == 1) "category" else "categories"} into the TomTom's own categories, so it names them in its language."))
         if (renamed.isNotEmpty() || moved.isNotEmpty()) needsRestart()
         if (unhooked) { needsRestart(); say((note?.text?.let { "$it " } ?: "") + "Removed the old start-up rename from the TomTom (it could stop the TomTom from starting).") }
+        rememberCarGps(d)
         if (checkGps) checkQuickFix(d)
     }
 
@@ -350,6 +353,50 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         say("Added $added POI(s) to category \"${poiCategory}\" ($path). On the TomTom: Navigate to → Point of Interest.")
     }
 
+    /** How a Send button delivers now: USB when a TomTom is connected, else the car link where there is one. */
+    val sendVia: SendVia? get() = when { device != null -> SendVia.USB; platform.carLink != null -> SendVia.BLUETOOTH; else -> null }
+    fun sendRoute() { if (sendVia == SendVia.USB) saveRoute() else sendRouteByCarLink() }
+    fun sendPois() { if (sendVia == SendVia.USB) savePois() else sendPoisByCarLink() }
+    fun sendQuickFix() { if (sendVia == SendVia.USB) updateQuickFix() else sendQuickFixByCarLink() }
+
+    private fun carOutbox() = platform.dataDir?.let { app.mapstotom.link.CarOutbox.at(java.io.File(it, "carlink/outbox")) }
+        ?: error("The car link isn't available here")
+
+    private fun carLinkWhen() = if (app.mapstotom.link.CarLinkState.phase.value == app.mapstotom.link.CarLinkState.Phase.OFF)
+        "It's waiting: press Start in the Car link tab, then let the TomTom connect." else "It arrives within about 30 seconds while the TomTom is connected."
+
+    /** Queues the route for the helper on the TomTom's card. */
+    fun sendRouteByCarLink() {
+        val snapshot = points.toList()
+        work("Queuing the route…", Job.ROUTE) {
+            require(snapshot.size >= 2) { "A route needs at least 2 points" }
+            val pts = routePoints(snapshot)
+            val path = "itn/" + safeFilename(routeName) + ".itn"
+            carOutbox().put(path, buildItn(pts, firstIsDeparture))
+            say("Route queued for Bluetooth (${pts.size} points). ${carLinkWhen()} Then on the TomTom: Itinerary planning → Options → Load itinerary.")
+        }
+    }
+
+    /** Queues the places to be added to the category on the TomTom, leaving what's already in it. */
+    fun sendPoisByCarLink() = work("Queuing POIs…", Job.SEND_POIS) {
+        val stops = points.filter { it.kind == Point.Kind.STOP }
+        require(stops.isNotEmpty()) { "No points to send" }
+        val box = carOutbox()
+        val name = safeFilename(poiCategory)
+        // The app can't read the TomTom over Bluetooth, so it remembers what it already sent to each category.
+        val sentFile = java.io.File(platform.dataDir, "carlink/sent-pois.txt")
+        val sent = (if (sentFile.isFile) sentFile.readLines() else emptyList()).toMutableSet()
+        fun key(p: Point) = "${name.lowercase()}\t${Math.rint(p.lat * 1e5).toLong()}\t${Math.rint(p.lon * 1e5).toLong()}\t${safeName(p.name)}"
+        val fresh = stops.filter { sent.add(key(it)) }
+        if (fresh.isEmpty()) { say("Those places were already sent to \"$poiCategory\".", key = Job.SEND_POIS); return@work }
+        val out = java.io.ByteArrayOutputStream()
+        fresh.forEach { out.write(ov2Record(it)) }
+        box.put("@map/$name.ov2", out.toByteArray(), app.mapstotom.link.CarOutbox.Mode.ADD)
+        box.put("@map/$name.bmp", poiIconBmp(), app.mapstotom.link.CarOutbox.Mode.IF_MISSING)
+        sentFile.parentFile?.mkdirs(); sentFile.writeText(sent.joinToString("\n") + "\n")
+        say("${fresh.size} POI(s) queued for Bluetooth, for category \"$poiCategory\". ${carLinkWhen()} A new category may need a TomTom restart to appear.")
+    }
+
     fun exportItn() = scope.launch {
         if (points.size < 2) { say("A route needs at least 2 points", true, Job.ROUTE); return@launch }
         val data = withContext(Dispatchers.IO) { runCatching { buildItn(routePoints(), firstIsDeparture) } }
@@ -408,6 +455,45 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         gen++
         val warn = if (d.chip.chip == Chip.GL2 && !clockFixInstalled(d.fs)) " Tip: also install the clock fix below." else ""
         say("QuickGPSFix updated, valid until ${fmt(q.expiry)}." + (note?.let { " $it" } ?: "") + warn)
+    }
+
+    /** TomToms met by USB or Bluetooth, newest first. The car link can't read the card, so it uses these. */
+    var knownTomToms by mutableStateOf(app.mapstotom.core.parseKnownTomToms(platform.loadSetting("carDevices")))
+        private set
+    var carTomTomKey by mutableStateOf(knownTomToms.firstOrNull()?.key)
+    val carTomTom get() = knownTomToms.find { it.key == carTomTomKey } ?: knownTomToms.firstOrNull()
+
+    init {
+        if (platform.carLink != null) scope.launch {
+            app.mapstotom.link.CarLinkState.device.collect { r ->
+                r?.let { app.mapstotom.core.knownFromReport(it.model, it.gpsType, it.gpsVersion, System.currentTimeMillis()) }?.let(::meetTomTom)
+            }
+        }
+    }
+
+    private fun meetTomTom(t: app.mapstotom.core.KnownTomTom) {
+        knownTomToms = app.mapstotom.core.rememberTomTom(knownTomToms, t)
+        carTomTomKey = t.key
+        platform.saveSetting("carDevices", app.mapstotom.core.formatKnownTomToms(knownTomToms))
+    }
+
+    private fun rememberCarGps(d: DeviceInfo) {
+        if (d.chip.chip == Chip.UNKNOWN) return
+        val engine = if (d.chip.chip == Chip.GL1) runCatching { gl1EngineVersion(d.fs) }.getOrNull() else null
+        meetTomTom(app.mapstotom.core.KnownTomTom(d.model, d.chip.chip, engine, System.currentTimeMillis()))
+    }
+
+    /** Downloads QuickGPSFix and queues it for the helper on the TomTom's card. */
+    fun sendQuickFixByCarLink() = work("Preparing QuickGPSFix…", Job.GPS) {
+        val tomtom = carTomTom ?: error("No TomTom known yet. Connect it through the car link, or by USB once.")
+        val chip = tomtom.chip
+        require(chip.quickFixProvider != null) { "No QuickGPSFix exists for ${chip.label}" }
+        require(chip != Chip.GL1 || tomtom.engine != null) { "MapsToTom doesn't know this TomTom's GPS program yet. Connect it by USB once." }
+        val q = downloadQuickFix(chip, net)
+        val (files, adjusted) = quickFixCarFiles(q, chip, tomtom.engine)
+        carOutbox().putInOrder(files)
+        say("QuickGPSFix queued for Bluetooth, valid until ${fmt(q.expiry)}. ${carLinkWhen()} " + (adjusted?.let { "$it " } ?: "") +
+            "When it arrives, turn the TomTom off and on so the GPS loads it. It needs the latest Bluetooth helper on its card.", key = Job.GPS)
     }
 
     fun removeQuickFix() = work("Removing QuickGPSFix…", Job.GPS) {
@@ -506,7 +592,7 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     private fun installCarLinkPatch() = work("Patching NavCore…", Job.DEVICE) {
         val patch = navCorePatch()
         app.mapstotom.core.installCarLinkPatch(requireDevice().fs, patch); gen++; needsRestart()
-        say("NavCore patched, with Live and Bluetooth on. Do a full restart of the TomTom, then pair it from the Car tab.")
+        say("NavCore patched, with Live and Bluetooth on. Do a full restart of the TomTom, then pair it from the Car link tab.")
     }
 
     private fun removeCarLinkPatch() = work("Removing the patch…", Job.DEVICE) {
@@ -556,16 +642,21 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         }
     }
 
+    /** A full copy of the card: on these units that includes the system, NavCore, GPS programs, maps and settings. */
     fun backup() = scope.launch {
         val d = device ?: return@launch
         val target = platform.pickFolder(FolderPurpose.BACKUP_TARGET) ?: return@launch
         work("Backing up…", Job.BACKUP) {
-            plan(listOf("List the files on the TomTom", "Copy the files"))
+            plan(listOf("Copy and check every file"))
             step(0)
             val folder = "MapsToTom-backup-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
-            val n = copyTree(d.fs, "", target, folder) { step(1) }
-            target.write("$folder/MapsToTom-backup.txt", "Backup of ${d.model} made by MapsToTom on ${LocalDateTime.now()}\n$n files\n".toByteArray())
-            say("Backed up $n files to ${target.displayName}/$folder.")
+            val note = "Backup of ${d.model}, NavCore ${d.navcore ?: "unknown"}, made by MapsToTom on ${LocalDateTime.now()}"
+            val n = backupCard(d.fs, target, folder, note) { i, of ->
+                progress(i, of, "files")
+                if (i % 20 == 0) stepDetail(0, "%,d of %,d".format(i, of))
+            }
+            progress = null
+            say("Backed up and checked $n files in ${target.displayName}/$folder.")
         }
     }
 
@@ -573,33 +664,33 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         val d = device ?: return@launch
         val src = platform.pickFolder(FolderPurpose.BACKUP_SOURCE) ?: return@launch
         work("Restoring…", Job.BACKUP) {
-            require(isTomTomRoot(src) || src.exists("MapsToTom-backup.txt")) { "That folder isn't a TomTom backup" }
-            plan(listOf("List the files in the backup", "Copy them to the TomTom"), restart = true)
+            plan(listOf("Check the backup", "Copy it to the TomTom"), restart = true)
             step(0)
-            val n = copyTree(src, "", d.fs, "", skip = setOf("MapsToTom-backup.txt")) { step(1) }
+            var copying = false
+            val n = restoreCard(src, d.fs) { i, of, writing ->
+                if (writing && !copying) { copying = true; step(1) }
+                progress(i, of, "files")
+                if (i % 20 == 0) stepDetail(if (writing) 1 else 0, "%,d of %,d".format(i, of))
+            }
+            progress = null
             gen++; needsRestart()
-            say("Restored $n files to the TomTom.")
+            say("Restored and checked $n files on the TomTom.")
         }
     }
 
-    private fun copyTree(from: DeviceFs, fromPath: String, to: DeviceFs, toPath: String, skip: Set<String> = emptySet(), listed: () -> Unit = {}): Int {
-        val files = mutableListOf<String>()
-        fun walk(p: String) {
-            for (n in from.list(p)) {
-                val c = join(p, n)
-                if (n in skip || n == "System Volume Information" || n.startsWith(".Trash")) continue
-                if (from.isDir(c)) walk(c) else files += c
-            }
-        }
-        walk(fromPath)
-        listed()
-        files.forEachIndexed { i, f ->
-            progress(i, files.size, "files")
-            if (i % 20 == 0) stepDetail(1, "%,d of %,d".format(i, files.size))
-            to.write(join(toPath, f.removePrefix(fromPath).trimStart('/')), from.read(f) ?: ByteArray(0))
-        }
-        progress = null
-        return files.size
+    // ---------------------------------------------------------- NavCore kitchen
+    fun askKitchenModel(word: String) {
+        val m = kitchenModel(word) ?: return
+        val title = recipeFor(word)?.title ?: m.label
+        riskyChange = RiskyChange("Switch to $title?",
+            "Your TomTom will act as a different model after its next full restart, so some features may appear or disappear. " +
+                "If you don't like it, come back here and choose your old profile.",
+            listOf("Config/setconfig.txt", "setconfig.txt"), Job.DEVICE) { setModelNow(m) }
+    }
+
+    private fun setModelNow(m: KitchenModel) = work("Changing the device model…", Job.DEVICE) {
+        setKitchenModel(requireDevice().fs, m.word); gen++; needsRestart()
+        say("Device model set to ${m.label}. It takes effect at the TomTom's next full start.")
     }
 
     // ---------------------------------------------------------- POI library

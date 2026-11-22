@@ -45,6 +45,8 @@ fun ColumnScope.PoiScreen(state: AppState, wide: Boolean) {
 
 @Composable
 private fun AddPois(state: AppState) {
+    PlacesSection(state)
+    Spacer(Modifier.height(Space.xxl))
     FuelSection(state)
     Spacer(Modifier.height(Space.xxl))
     OsmSection(state)
@@ -64,6 +66,31 @@ private fun AddPois(state: AppState) {
 private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.headlineSmall, color = LocalTokens.current.text)
     Spacer(Modifier.height(Space.sm))
+}
+
+// ------------------------------------------------------------------ your own places
+
+/** Google Maps links, coordinates or addresses, sent as POIs in a category of your choice. */
+@Composable
+private fun PlacesSection(state: AppState) {
+    SectionTitle("Add places")
+    Prose("From a Google Maps link, coordinates or an address.")
+    Spacer(Modifier.height(Space.md))
+    PlaceInput(state)
+    if (state.points.isEmpty()) return
+    Spacer(Modifier.height(Space.md))
+    PointList(state, compact = true)
+    Spacer(Modifier.height(Space.md))
+    Panel {
+        OutlinedTextField(state.poiCategory, { state.poiCategory = it }, Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+            singleLine = true, label = { Text("Category") }, shape = Radius.control)
+        Spacer(Modifier.height(Space.md))
+        PrimaryButton("Send", { state.sendPois() }, enabled = state.busy == null && state.sendVia != null,
+            icon = Icons.Filled.Send, busy = state.running(Job.SEND_POIS), busyText = "Sending…")
+        Spacer(Modifier.height(Space.xs))
+        SendHint(state)
+        JobFeedback(state, Job.SEND_POIS)
+    }
 }
 
 // ------------------------------------------------------------------ fuel prices

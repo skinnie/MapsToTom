@@ -24,19 +24,38 @@ import app.mapstotom.core.Point
 import app.mapstotom.ui.*
 
 @Composable
-fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
+fun ColumnScope.ItineraryScreen(state: AppState, wide: Boolean) {
     val t = LocalTokens.current
-    var input by remember { mutableStateOf("") }
-    var editing by remember { mutableStateOf<Int?>(null) }
-    val idle = state.busy == null
-
     ScreenHeader(
-        "Send to TomTom",
+        "Itinerary",
         if (state.platform.isAndroid) "In Google Maps, tap Share and pick MapsToTom. Or paste a Google Maps or ViaMichelin link, coordinates or an address."
         else "Copy a link in Google Maps (Share, then Copy link) or a ViaMichelin route's address, or paste coordinates or an address.",
     )
+    PlaceInput(state)
 
-    // ---- input: the first thing to do on this screen
+    Spacer(Modifier.height(Space.xxl))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Route", style = MaterialTheme.typography.headlineSmall, color = t.text)
+        Spacer(Modifier.width(Space.md))
+        Text(if (state.points.isEmpty()) "empty" else "${state.points.size} point" + if (state.points.size == 1) "" else "s",
+            style = MaterialTheme.typography.bodyMedium, color = t.textMuted, modifier = Modifier.weight(1f))
+        if (state.points.isNotEmpty()) DangerTextButton("Clear all", { state.clearPoints() }, enabled = state.busy == null)
+    }
+    Spacer(Modifier.height(Space.md))
+    PointList(state, compact = !wide)
+
+    if (state.points.isNotEmpty()) {
+        Spacer(Modifier.height(Space.xxl))
+        RoutePanel(state)
+    }
+}
+
+/** Where places come from: shared by the Itinerary and POIs tabs, which work on the same list. */
+@Composable
+internal fun PlaceInput(state: AppState) {
+    val t = LocalTokens.current
+    var input by remember { mutableStateOf("") }
+    val idle = state.busy == null
     Panel {
         OutlinedTextField(
             input, { input = it }, Modifier.fillMaxWidth(), minLines = 2, maxLines = 5,
@@ -75,38 +94,34 @@ fun ColumnScope.SendScreen(state: AppState, wide: Boolean) {
             }
         }
     }
+}
 
-    // ---- the list
-    Spacer(Modifier.height(Space.xxl))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Route", style = MaterialTheme.typography.headlineSmall, color = t.text)
-        Spacer(Modifier.width(Space.md))
-        Text(if (state.points.isEmpty()) "empty" else "${state.points.size} point" + if (state.points.size == 1) "" else "s",
-            style = MaterialTheme.typography.bodyMedium, color = t.textMuted, modifier = Modifier.weight(1f))
-        if (state.points.isNotEmpty()) DangerTextButton("Clear all", { state.clearPoints() }, enabled = idle)
-    }
-    Spacer(Modifier.height(Space.md))
+@Composable
+internal fun PointList(state: AppState, compact: Boolean) {
+    var editing by remember { mutableStateOf<Int?>(null) }
+    val idle = state.busy == null
     Panel(padding = PaddingValues(horizontal = Space.lg, vertical = Space.xs)) {
         if (state.points.isEmpty()) EmptyState(Icons.Filled.Route, "No points yet",
-            "Add a place or a route above. It shows up here to reorder and rename before saving.")
+            "Add a place or a route above. It shows up here to reorder and rename before sending.")
         state.points.forEachIndexed { i, p ->
             if (i > 0) Hairline()
-            PointRow(i, p, state, compact = !wide, idle = idle, onRename = { editing = i })
+            PointRow(i, p, state, compact = compact, idle = idle, onRename = { editing = i })
         }
     }
-
-    // ---- save
-    if (state.points.isNotEmpty()) {
-        Spacer(Modifier.height(Space.xxl))
-        Text("Save", style = MaterialTheme.typography.headlineSmall, color = t.text)
-        Spacer(Modifier.height(Space.md))
-        SavePanel(state, wide)
-    }
-
     editing?.let { i ->
         if (i in state.points.indices) RenameDialog(state.points[i].name, onDone = { name -> name?.let { state.rename(i, it) }; editing = null })
         else editing = null
     }
+}
+
+/** How the Send button next to it will deliver. */
+@Composable
+internal fun SendHint(state: AppState, withoutDevice: String = "Connect a TomTom to send.") {
+    Text(when (state.sendVia) {
+        SendVia.USB -> "Sends by USB to the connected TomTom."
+        SendVia.BLUETOOTH -> "No TomTom on USB, so this sends by Bluetooth through the car link."
+        null -> withoutDevice
+    }, style = MaterialTheme.typography.bodySmall, color = LocalTokens.current.textMuted)
 }
 
 @Composable
@@ -153,12 +168,9 @@ private fun PointRow(i: Int, p: Point, state: AppState, compact: Boolean, idle: 
 }
 
 @Composable
-private fun SavePanel(state: AppState, wide: Boolean) {
+private fun RoutePanel(state: AppState) {
     val t = LocalTokens.current
-    val ready = state.device != null && state.busy == null
     Panel {
-        Overline("As a route")
-        Spacer(Modifier.height(Space.sm))
         OutlinedTextField(state.routeName, { state.routeName = it }, Modifier.widthIn(max = Space.measure).fillMaxWidth(),
             singleLine = true, label = { Text("Route name") }, shape = Radius.control)
         Spacer(Modifier.height(Space.xs))
@@ -183,27 +195,13 @@ private fun SavePanel(state: AppState, wide: Boolean) {
         }
         Spacer(Modifier.height(Space.md))
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            PrimaryButton("Save route to TomTom", { state.saveRoute() }, enabled = ready && state.points.size >= 2, icon = Icons.Filled.Route,
-                busy = state.running(Job.ROUTE), busyText = "Saving…")
+            PrimaryButton("Send", { state.sendRoute() }, enabled = state.busy == null && state.sendVia != null && state.points.size >= 2,
+                icon = Icons.Filled.Send, busy = state.running(Job.ROUTE), busyText = "Sending…")
             SecondaryButton("Export .itn", { state.exportItn() }, enabled = state.busy == null && state.points.size >= 2)
         }
+        Spacer(Modifier.height(Space.xs))
+        SendHint(state, "Connect a TomTom to send. Export works without one.")
         JobFeedback(state, Job.ROUTE)
-
-        Spacer(Modifier.height(Space.lg)); Hairline(); Spacer(Modifier.height(Space.lg))
-
-        Overline("As places (POIs)")
-        Spacer(Modifier.height(Space.sm))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            OutlinedTextField(state.poiCategory, { state.poiCategory = it }, Modifier.widthIn(max = 360.dp).weight(1f, fill = false),
-                singleLine = true, label = { Text("Category") }, shape = Radius.control)
-            SecondaryButton("Save as POIs", { state.savePois() }, enabled = ready, icon = Icons.Filled.Place,
-                busy = state.running(Job.SEND_POIS), busyText = "Saving…")
-        }
-        JobFeedback(state, Job.SEND_POIS)
-        if (state.device == null) {
-            Spacer(Modifier.height(Space.md))
-            Text("Connect a TomTom to save. Export works without one.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
-        }
     }
 }
 

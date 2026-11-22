@@ -175,3 +175,38 @@ class AlmanacInstallRun {
         println("ALMANAC: ${sats.size} satellites, ${sats.count { it.healthy }} healthy, week ${sats[0].week}, date ${info.date}, builtIn=${info.builtIn}, canRemove=${info.canRemove}")
     }
 }
+
+/** A real full backup, read-only for the source: -Pm2t.backupFrom=<card root> -Pm2t.backupTo=<folder>. Not run by default. */
+class CardBackupRun {
+    @Test fun run() {
+        val from = System.getProperty("m2t.backupFrom")?.let(::File) ?: return
+        val to = File(System.getProperty("m2t.backupTo") ?: error("-Pm2t.backupTo needed")).apply { mkdirs() }
+        val t0 = System.currentTimeMillis()
+        val n = app.mapstotom.core.backupCard(app.mapstotom.core.LocalFs(from), app.mapstotom.core.LocalFs(to), "card", "Full card backup")
+        val check = app.mapstotom.core.verifyBackup(app.mapstotom.core.LocalFs(File(to, "card")))
+        println("BACKUP: $n files in ${(System.currentTimeMillis() - t0) / 1000} s, verified ${check.files}, missing ${check.missing.size}, damaged ${check.damaged.size}")
+        check(check.ok)
+    }
+}
+
+/** Draws the kitchen from a real card copy: -Pm2t.backupFrom=<card> -Pm2t.backupTo=<folder>. Not run by default. */
+class KitchenRenderRun {
+    @Test fun run() {
+        val from = System.getProperty("m2t.backupFrom")?.let(::File) ?: return
+        val out = File(System.getProperty("m2t.backupTo") ?: error("-Pm2t.backupTo needed"))
+        val fs = app.mapstotom.core.LocalFs(from); val bif = app.mapstotom.core.readBif(fs)
+        val k = app.mapstotom.core.readKitchen(fs, bif); val s = app.mapstotom.core.readDeviceSpecs(fs, bif)
+        val f = bif["Features"]!!.split(',').toSet()
+        val scene = androidx.compose.ui.ImageComposeScene(760, 1900, androidx.compose.ui.unit.Density(1f)) {
+            app.mapstotom.ui.MapsToTomTheme(dark = true) {
+                androidx.compose.material3.Surface(color = app.mapstotom.ui.LocalTokens.current.page) {
+                    androidx.compose.foundation.layout.Column {
+                        app.mapstotom.KitchenContent(k, s, f, true, "x40light3") {}
+                    }
+                }
+            }
+        }
+        scene.render(); val img = scene.render(1_000_000_000L)
+        File(out, "kitchen.png").writeBytes(img.encodeToData()!!.bytes); scene.close()
+    }
+}

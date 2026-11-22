@@ -95,6 +95,17 @@ fun setLive(fs: DeviceFs, on: Boolean) {
     }
 }
 
+/** Sets the device model. Going to a Live model remembers the one before, as the Live switch does. */
+fun setKitchenModel(fs: DeviceFs, word: String) {
+    require(kitchenModel(word) != null) { "Unknown model $word" }
+    val sc = readSetConfig(fs) ?: error("This TomTom has no setconfig.txt.")
+    require(!sc.hasModelId) { "${sc.path} has a modelid line, which overrides the model. Remove that line first." }
+    val before = join(parentOf(sc.path), MODEL_BEFORE_LIVE)
+    if (word in LIVE_MODELS) sc.model?.takeIf { it !in LIVE_MODELS }?.let { fs.write(before, (it + "\r\n").toByteArray()) }
+    else if (fs.exists(before)) fs.delete(before)
+    writeSetConfig(fs, sc, setModel(sc.text, word))
+}
+
 fun setBluetooth(fs: DeviceFs, on: Boolean) {
     val sc = readSetConfig(fs) ?: error("This TomTom has no setconfig.txt.")
     writeSetConfig(fs, sc, if (on) setWord(sc.text, "bton", "btoff") else setWord(sc.text, "btoff", "bton"))
@@ -156,7 +167,7 @@ fun setFuelPrices(fs: DeviceFs, mapDir: String, on: Boolean): Int {
     return n
 }
 
-// ------------------------------------------------------------------ everything the Device tab shows
+// ------------------------------------------------------------------ everything the Settings tab shows
 
 class FuelAddon(val name: String, val stations: Int, val bytes: Long)
 

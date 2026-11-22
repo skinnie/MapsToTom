@@ -79,6 +79,7 @@ class LinkService : Service() {
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(pairingReceiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(pairingReceiver, filter)
             worker = Thread(::serveLoop, "car-link").apply { isDaemon = true; start() }
+            Thread(::knockLoop, "car-link-knock").apply { isDaemon = true; start() }
         }
         return START_STICKY
     }
@@ -130,6 +131,32 @@ class LinkService : Service() {
             }
         }
         runCatching { listener?.close() }
+    }
+
+    /**
+     * After a restart the TomTom doesn't call its phone by itself. A computer's Bluetooth reconnects to a paired device,
+     * which wakes it up, so while nothing is connected this does the same: a short connection attempt to the paired TomTom.
+     * Often at first, then rarely, so a TomTom that is switched off costs next to nothing.
+     */
+    @SuppressLint("MissingPermission")
+    private fun knockLoop() {
+        val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter ?: return
+        var waited = 0
+        while (running) {
+            val pause = if (waited < KNOCK_FAST_FOR) KNOCK_FAST else KNOCK_SLOW
+            runCatching { Thread.sleep(pause * 1000L) }
+            if (!running) return
+            if (CarLinkState.phase.value != Phase.WAITING) { waited = 0; continue }
+            waited += pause
+            // Never let a knock take the app down: it is only a convenience.
+            runCatching {
+                if (!adapter.isEnabled) return@runCatching
+                for (d in adapter.bondedDevices.filter(::isTomTom)) {
+                    // Nothing listens for this on the TomTom: opening the link is the knock, and the attempt then just fails.
+                    runCatching { d.createInsecureRfcommSocketToServiceRecord(KNOCK_UUID).use { it.connect() } }
+                }
+            }
+        }
     }
 
     /**
@@ -218,6 +245,10 @@ class LinkService : Service() {
         private const val TOMTOM_PIN = "0000"
         private const val DUN_CHANNEL_KEY = "carLink.dunChannel"
         private const val MAX_CHANNEL_TRIES = 35
+        private val KNOCK_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
+        private const val KNOCK_FAST = 15
+        private const val KNOCK_SLOW = 60
+        private const val KNOCK_FAST_FOR = 300
         private const val TOMTOM_ADDRESS_BLOCK = "00:13:6C:"
 
         /** Bluetooth Dial-up Networking service class. */
