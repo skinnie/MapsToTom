@@ -100,11 +100,14 @@ class FoursquareTest {
         assertEquals(1000, back.entries.size)
         // Every skipper's area holds the places inside it, and its size covers exactly them.
         val bb = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val starts = HashSet<Int>().also { s -> var j = 0; while (j < data.size) { s += j; j += if (data[j].toInt() == 1) 21 else bb.getInt(j + 1) }; s += data.size }
         var i = 0; var skippers = 0
         while (i < data.size) {
             if (data[i].toInt() == 1) {
                 skippers++
                 val end = i + bb.getInt(i + 1); val e = bb.getInt(i + 5); val n = bb.getInt(i + 9); val w = bb.getInt(i + 13); val s = bb.getInt(i + 17)
+                // Passing over a block must land on the start of a record (or the end of the file).
+                assertTrue(end in starts, "skipper at $i ends inside a record")
                 val inside = readOv2Contents(data.copyOfRange(i + 21, end)).entries
                 assertTrue(inside.isNotEmpty() && inside.all { Math.rint(it.lon * 1e5).toInt() in w..e && Math.rint(it.lat * 1e5).toInt() in s..n })
                 i += 21

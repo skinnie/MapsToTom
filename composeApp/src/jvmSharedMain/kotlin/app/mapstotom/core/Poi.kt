@@ -64,7 +64,7 @@ fun buildOv2(entries: List<Ov2Entry>, other: List<ByteArray> = emptyList(), head
     val out = java.io.ByteArrayOutputStream()
     for (h in heads) out.write(h)
     val records = entries.map { it to (it.raw ?: ov2Record(it.toPoint())) }
-    if (records.size > SKIPPER_ABOVE) writeSkipped(out, records) else for ((_, r) in records) out.write(r)
+    if (records.size > SKIPPER_ABOVE) out.write(skippedBlock(records)) else for ((_, r) in records) out.write(r)
     for (o in other) out.write(o)
     return out.toByteArray()
 }
@@ -72,18 +72,24 @@ fun buildOv2(entries: List<Ov2Entry>, other: List<ByteArray> = emptyList(), head
 const val SKIPPER_ABOVE = 200
 private const val SKIPPER_LEAF = 64
 
-/** Splits [records] in halves along the longer side until each block holds at most [SKIPPER_LEAF] places. */
-private fun writeSkipped(out: java.io.ByteArrayOutputStream, records: List<Pair<Ov2Entry, ByteArray>>) {
-    if (records.size <= SKIPPER_LEAF) { for ((_, r) in records) out.write(r); return }
+/**
+ * Splits [records] in halves along the longer side until each block holds at most [SKIPPER_LEAF] places.
+ * A skipper's size is everything up to the next record after its block, the skippers inside it included: with a
+ * size that is too short the TomTom lands in the middle of a record, and its POI name search finds nothing at
+ * all, in any category (seen on NavCore 9.541).
+ */
+private fun skippedBlock(records: List<Pair<Ov2Entry, ByteArray>>): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    if (records.size <= SKIPPER_LEAF) { for ((_, r) in records) out.write(r); return out.toByteArray() }
     val lats = records.map { Math.rint(it.first.lat * 1e5).toInt() }; val lons = records.map { Math.rint(it.first.lon * 1e5).toInt() }
-    val size = 21 + records.sumOf { it.second.size }
-    // East, north, west, south, in 1e-5 degrees.
-    out.write(ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN).put(1).putInt(size)
-        .putInt(lons.max()).putInt(lats.max()).putInt(lons.min()).putInt(lats.min()).array())
     val byLon = lons.max() - lons.min() > lats.max() - lats.min()
     val sorted = records.sortedBy { if (byLon) it.first.lon else it.first.lat }
-    writeSkipped(out, sorted.subList(0, sorted.size / 2))
-    writeSkipped(out, sorted.subList(sorted.size / 2, sorted.size))
+    val body = skippedBlock(sorted.subList(0, sorted.size / 2)) + skippedBlock(sorted.subList(sorted.size / 2, sorted.size))
+    // East, north, west, south, in 1e-5 degrees.
+    out.write(ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN).put(1).putInt(21 + body.size)
+        .putInt(lons.max()).putInt(lats.max()).putInt(lons.min()).putInt(lats.min()).array())
+    out.write(body)
+    return out.toByteArray()
 }
 
 /**

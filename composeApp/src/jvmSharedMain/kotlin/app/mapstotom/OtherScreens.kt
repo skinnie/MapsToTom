@@ -360,4 +360,4 @@ private fun AboutFooter(state: AppState) {
     }
 }
 
-object BuildInfo { const val VERSION = "1.0.0" }
+object BuildInfo { const val VERSION = "1.0.1" }
