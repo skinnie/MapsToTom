@@ -117,6 +117,51 @@ class FoursquareTest {
         assertEquals(buildOv2(pts.take(SKIPPER_ABOVE)).size, pts.take(SKIPPER_ABOVE).sumOf { 14 + it.name.length })
     }
 
+    /** [good] as MapsToTom 1.0.0 wrote it: each skipper's size counts itself and its places, not the skippers inside. */
+    private fun withOldSkipperSizes(good: ByteArray): ByteArray {
+        val out = good.copyOf(); val bb = java.nio.ByteBuffer.wrap(out).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val src = java.nio.ByteBuffer.wrap(good).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        var i = 0
+        while (i < good.size) {
+            if (good[i].toInt() != 1) { i += src.getInt(i + 1); continue }
+            val end = i + src.getInt(i + 1); var j = i + 21; var places = 0
+            while (j < end) { if (good[j].toInt() == 1) j += 21 else { val n = src.getInt(j + 1); places += n; j += n } }
+            bb.putInt(i + 1, 21 + places); i += 21
+        }
+        return out
+    }
+
+    private val bigPoi = buildOv2((0 until 1000).map { Ov2Entry("P$it", 37.0 + (it % 40) * 0.1, -9.0 + (it / 40) * 0.1) })
+
+    @Test fun repairsOldSkipperSizesExactly() {
+        val old = withOldSkipperSizes(bigPoi)
+        assertTrue(!old.contentEquals(bigPoi))
+        assertTrue(repairSkipperSizes(old).contentEquals(bigPoi))
+        assertEquals(null, repairSkipperSizes(bigPoi), "a good file is left alone")
+        // Off a record boundary, but not the old fault: not ours to touch.
+        val other = bigPoi.copyOf(); java.nio.ByteBuffer.wrap(other).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(1, 22)
+        assertEquals(null, repairSkipperSizes(other))
+        assertEquals(null, repairSkipperSizes(old.copyOf(old.size - 3)), "a cut-off file is left alone")
+    }
+
+    @Test fun repairsPoiFilesOnTheCardAndRecoversFromACutShortRepair() {
+        val dir = java.nio.file.Files.createTempDirectory("repair").toFile()
+        try {
+            val fs = LocalFs(dir); val old = withOldSkipperSizes(bigPoi)
+            for (n in listOf("PA7369.ov2", "Bares.ov2", "PA7311.ov2.mapstotom-parked", "Cams.ov2")) fs.write("m/$n", old)
+            fs.write("m/Cams.ov2.dct", ByteArray(4))
+            fs.write("m/PA7369.ov2.mapstotom", old) // the list of added places: not a POI file
+            fs.write("m/Good.ov2", bigPoi)
+            fs.write("m/Lost.ov2.mapstotom-repair-old", old); fs.write("m/Lost.ov2.mapstotom-repair-new", ByteArray(9))
+            assertEquals(setOf("PA7369.ov2", "Bares.ov2", "PA7311.ov2.mapstotom-parked", "Lost.ov2"), repairPoiFiles(fs, "m").toSet())
+            for (n in listOf("PA7369.ov2", "Bares.ov2", "PA7311.ov2.mapstotom-parked", "Lost.ov2", "Good.ov2"))
+                assertTrue(fs.read("m/$n").contentEquals(bigPoi), n)
+            assertTrue(fs.read("m/Cams.ov2").contentEquals(old)); assertTrue(fs.read("m/PA7369.ov2.mapstotom").contentEquals(old))
+            assertTrue(fs.list("m").none { "repair" in it })
+            assertEquals(emptyList(), repairPoiFiles(fs, "m"))
+        } finally { dir.deleteRecursively() }
+    }
+
     // ------------------------------------------------------------------ Overture, Hugging Face, sharing a file
 
     private val overtureExpected = Json.parse(res("overture-expected.json").decodeToString()) as List<*>

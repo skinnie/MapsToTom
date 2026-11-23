@@ -93,6 +93,76 @@ private fun skippedBlock(records: List<Pair<Ov2Entry, ByteArray>>): ByteArray {
 }
 
 /**
+ * MapsToTom 1.0.0 and earlier left the nested skippers out of each skipper's size, which breaks the TomTom's POI name
+ * search (see [skippedBlock]). Returns [data] with the sizes corrected and every other byte as it was, or null when the
+ * file has no such fault, or has a fault of another shape, which isn't ours to touch.
+ */
+fun repairSkipperSizes(data: ByteArray): ByteArray? {
+    val bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+    val offsets = ArrayList<Int>(); val sizes = ArrayList<Int>()
+    var i = 0
+    while (i < data.size) {
+        if (i + 5 > data.size) return null
+        val size = if (data[i].toInt() == 1) 21 else bb.getInt(i + 1)
+        if (size < 5 || i.toLong() + size > data.size) return null
+        offsets += i; sizes += size; i += size
+    }
+    val starts = offsets.toHashSet().also { it += data.size }
+    val isSkipper = { k: Int -> data[offsets[k]].toInt() == 1 }
+    if (offsets.indices.none { k -> isSkipper(k) && (offsets[k].toLong() + bb.getInt(offsets[k] + 1)).let { it !in 0..data.size || it.toInt() !in starts } }) return null
+    val out = data.copyOf()
+    val fixed = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+    for (k in offsets.indices) {
+        if (!isSkipper(k)) continue
+        // The faulty size counts the skipper itself and the places in its block, so walk until that many place bytes.
+        val want = bb.getInt(offsets[k] + 1).toLong() - 21
+        if (want < 0) return null
+        var got = 0L; var j = k + 1
+        while (got < want) {
+            if (j >= offsets.size) return null
+            if (!isSkipper(j)) got += sizes[j]
+            j++
+        }
+        if (got != want) return null
+        fixed.putInt(offsets[k] + 1, (if (j < offsets.size) offsets[j] else data.size) - offsets[k])
+    }
+    return out
+}
+
+private const val REPAIR_NEW = ".mapstotom-repair-new"
+private const val REPAIR_OLD = ".mapstotom-repair-old"
+private val REPAIRABLE = Regex(""".*\.ov2(\.mapstotom-parked(-\d+)?)?""", RegexOption.IGNORE_CASE)
+
+/**
+ * Corrects POI files in [mapDir] written with the faulty skipper sizes and returns their names. FAT can't replace a
+ * file in one step, so the new copy is checked first, and a repair cut short (card pulled out) is undone next time.
+ */
+fun repairPoiFiles(fs: DeviceFs, mapDir: String): List<String> {
+    for (n in fs.list(mapDir)) {
+        val p = join(mapDir, n)
+        if (n.endsWith(REPAIR_OLD)) {
+            val original = p.removeSuffix(REPAIR_OLD)
+            if (fs.exists(original)) fs.delete(p) else fs.rename(p, nameOf(original))
+        }
+    }
+    for (n in fs.list(mapDir)) if (n.endsWith(REPAIR_NEW)) fs.delete(join(mapDir, n))
+    val names = fs.list(mapDir)
+    return names.filter { n ->
+        if (!REPAIRABLE.matches(n) || names.any { it.equals("$n.dct", true) }) return@filter false
+        val path = join(mapDir, n)
+        val data = fs.read(path) ?: return@filter false
+        val good = repairSkipperSizes(data) ?: return@filter false
+        val new = path + REPAIR_NEW
+        fs.write(new, good)
+        if (!fs.read(new).contentEquals(good)) { fs.delete(new); return@filter false }
+        if (!fs.rename(path, n + REPAIR_OLD)) { fs.delete(new); return@filter false }
+        if (!fs.rename(new, n)) { fs.rename(path + REPAIR_OLD, n); fs.delete(new); return@filter false }
+        fs.delete(path + REPAIR_OLD)
+        true
+    }
+}
+
+/**
  * Change one category: [edit] gets the current places and returns the new list.
  * The first edit keeps the original as <name>.ov2.mapstotom-backup (the TomTom ignores it).
  */

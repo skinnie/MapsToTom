@@ -204,6 +204,8 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         if (osmCountries.isBlank()) osmCountries = countriesForMap(d.mapFolder).joinToString(", ")
         // The TomTom doesn't translate added POI files, so ours follow its language: rename them if it changed.
         val renamed = d.mapFolder?.let { m -> runCatching { renameTranslatedCategories(fs, m, d.language) }.getOrNull() }.orEmpty()
+        // Files written by 1.0.0 or earlier stop the TomTom's POI name search from finding anything.
+        val repaired = d.mapFolder?.let { m -> runCatching { repairPoiFiles(fs, m) }.getOrNull() }.orEmpty()
         val unhooked = runCatching { removeBootRename(fs) }.getOrNull() == true
         // Places of a kind the TomTom has (pools, campsites…) now go in its own categories, which it translates itself.
         d.mapFolder?.let { m -> runCatching { syncPetrolCategory(d.fs, m) } }
@@ -211,8 +213,9 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
         gen++
         say("Connected: ${d.model}." + (if (renamed.isEmpty()) "" else
             " Renamed ${renamed.size} OpenStreetMap ${if (renamed.size == 1) "category" else "categories"} to the TomTom's language (${bif["UserLanguage"]}).") +
-            (if (moved.isEmpty()) "" else " Moved ${moved.size} POI ${if (moved.size == 1) "category" else "categories"} into the TomTom's own categories, so it names them in its language."))
-        if (renamed.isNotEmpty() || moved.isNotEmpty()) needsRestart()
+            (if (moved.isEmpty()) "" else " Moved ${moved.size} POI ${if (moved.size == 1) "category" else "categories"} into the TomTom's own categories, so it names them in its language.") +
+            (if (repaired.isEmpty()) "" else " Repaired ${repaired.size} POI ${if (repaired.size == 1) "file" else "files"} that stopped the TomTom's POI search from finding places."))
+        if (renamed.isNotEmpty() || moved.isNotEmpty() || repaired.isNotEmpty()) needsRestart()
         if (unhooked) { needsRestart(); say((note?.text?.let { "$it " } ?: "") + "Removed the old start-up rename from the TomTom (it could stop the TomTom from starting).") }
         rememberCarGps(d)
         if (checkGps) checkQuickFix(d)
