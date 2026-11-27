@@ -26,7 +26,7 @@ Download the latest version from the [Releases page](https://github.com/skinnie/
 | Windows | `MapsToTom-x.y.z.msi` | Windows may warn about an unknown publisher: *More info → Run anyway*. |
 | macOS | `MapsToTom-x.y.z.dmg` | Not signed: the first time, right-click the app → *Open*. |
 | Linux | `mapstotom_x.y.z_amd64.deb` | `sudo apt install ./mapstotom_*.deb` |
-| Android 8+ | `MapsToTom-android.apk` | Allow "install unknown apps" for your browser or file manager. |
+| Android 8+ | `MapsToTom-android.apk` | Allow "install unknown apps" for your browser or file manager. From 1.0.4 on, updates install over the old app. If you have 1.0.3 or older, uninstall it first. |
 
 The desktop versions include their own Java runtime; nothing else is needed.
 

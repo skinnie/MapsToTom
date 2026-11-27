@@ -9,7 +9,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = "1.0.3"
+val appVersion = "1.0.4"
 
 kotlin {
     // Android and desktop are both JVM, so the app logic lives in one shared
@@ -72,8 +72,21 @@ android {
         applicationId = "app.mapstotom"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
+        versionCode = 5
         versionName = appVersion
+    }
+    // Releases are signed with one permanent key so updates install over the old app.
+    // CI passes it in M2T_KEYSTORE / M2T_KEYSTORE_PASSWORD; local builds keep the usual debug key.
+    val keystore = System.getenv("M2T_KEYSTORE")?.let(::file)?.takeIf { it.isFile }
+    if (keystore != null) {
+        signingConfigs.create("stable") {
+            storeFile = keystore
+            storeType = "PKCS12"
+            storePassword = System.getenv("M2T_KEYSTORE_PASSWORD")
+            keyAlias = "mapstotom"
+            keyPassword = System.getenv("M2T_KEYSTORE_PASSWORD")
+        }
+        buildTypes.getByName("debug").signingConfig = signingConfigs.getByName("stable")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
