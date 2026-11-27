@@ -34,7 +34,7 @@ class GpsTest {
         fun u32(v: Long) { for (i in 0..3) b.write(((v shr (8 * i)) and 0xff).toInt()) }
         u32(0x00decaff); u32(0); u32(1); repeat(16) { b.write(0) }          // magic, size (unchecked), version, MD5
         u32(0x1234); u32(4); u32(0xabcdef)                                   // a chunk the reader must skip
-        u32(0xbbcc00); u32(0); u32(2); u32(1); u32(1); u32(7); u32(9)        // tag, len, kind, mode, 1 pair
+        u32(0xbbcc00); u32(24L + 8 * epochs.size + 32); u32(2); u32(1); u32(1); u32(7); u32(9)  // tag, len, kind, mode, 1 pair
         u32(epochs.size.toLong()); epochs.forEachIndexed { i, t -> u32(t); u32(0x100L + i) }
         repeat(32) { b.write(it) }                                           // "block data"
         val d = b.toByteArray()
@@ -72,8 +72,8 @@ class GpsTest {
         assertEquals(listOf("ephem/lto.dat", "ephem/ee_meta.txt"), files.map { it.first })
         assertNotNull(note); assertTrue(ltoValid(files[0].second))
         assertEquals(1418, (ltoEpochs(files[0].second).first().second / week).toInt())
-        val (same, none) = quickFixCarFiles(q, Chip.GL2, null)
-        assertNull(none); assertContentEquals(lto, same[0].second)
+        val (gl2, trimmed) = quickFixCarFiles(q, Chip.GL2, null)
+        assertNotNull(trimmed); assertContentEquals(trimLtoForGl2(lto), gl2[0].second)
         val sirf = QuickFix(mapOf("packedephemeris.ee" to byteArrayOf(1), "ee_meta.txt" to byteArrayOf(2)), null)
         assertEquals("ephem/packedephemeris.ee", quickFixCarFiles(sirf, Chip.SIRF, null).first[0].first)
         assertFails { quickFixCarFiles(q, Chip.AR1520, null) }
@@ -112,11 +112,37 @@ class GpsTest {
         assertEquals(-1024, ltoWeekOffset(onDevice))
         assertEquals(1418, (ltoEpochs(onDevice.files["lto.dat"]!!).first().second / week).toInt())
 
-        for ((gltt, chip) in listOf("185.5001.041" to Chip.GL2, "185.4.000" to Chip.GL1, null to Chip.GL1)) {
+        for ((gltt, chip) in listOf("185.4.000" to Chip.GL1, null to Chip.GL1, null to Chip.SIRF)) {
             val other = deviceWith(gltt)
             assertNull(installQuickFix(other, q, chip), "$gltt $chip")
             assertContentEquals(lto, other.read("ephem/lto.dat"), "$gltt $chip")
         }
+    }
+
+    /** A GL2 gets the file without the chunk types added since 2019 and with the SBAS list cut to the 2019 PRNs. */
+    @Test fun gl2GetsTrimmedLto() {
+        val b = java.io.ByteArrayOutputStream()
+        fun u32(v: Long) { for (i in 0..3) b.write(((v shr (8 * i)) and 0xff).toInt()) }
+        fun u16(v: Int) { b.write(v and 0xff); b.write((v shr 8) and 0xff) }
+        u32(0x00decaff); u32(0); u32(1); repeat(16) { b.write(0) }
+        u32(0xbbcc00); u32(16); u32(2); u32(1); u32(0); u32(0)                 // no pairs, no blocks
+        u32(0x55bbaa55); u32(4 + 4 * 5); u32(1L or (5L shl 16))
+        for ((prn, lon) in listOf(121 to 50, 129 to 1400, 131 to -100, 135 to -1330, 138 to -1070)) { u16(prn); u16(lon) }
+        u32(0x43477539); u32(3); b.write(1); b.write(2); b.write(3)          // a chunk type from after 2019
+        val d = b.toByteArray()
+        java.security.MessageDigest.getInstance("MD5").digest(d.copyOfRange(0x1c, d.size)).copyInto(d, 0x0c)
+        val q = QuickFix(mapOf("lto.dat" to d, "ee_meta.txt" to "Expiry=1".toByteArray()), null)
+
+        val fs = tmp()
+        assertNotNull(installQuickFix(fs, q, Chip.GL2))
+        val t = fs.read("ephem/lto.dat")!!
+        assertTrue(ltoValid(t))
+        assertEquals(t.size - 8, (t[4].toInt() and 0xff) or ((t[5].toInt() and 0xff) shl 8))
+        assertEquals(d.size - 11 - 8, t.size)                                 // 2 SBAS entries and the new chunk gone
+        assertContentEquals(t, trimLtoForGl2(t))
+        val sbas = t.copyOfRange(0x1c + 24 + 8, t.size)
+        assertEquals(listOf(129, 135, 138), (0 until 3).map { (sbas[4 + 4 * it].toInt() and 0xff) })
+        assertEquals(3, sbas[2].toInt())
     }
 
     @Test fun powerOffToggle() {
@@ -159,6 +185,14 @@ class GpsIntegrationTest {
     }
 
     /** Without bin/gltt on the card the version comes from inside ttsystem (here NavCore 7.900's). */
+    /** The app's trim must give exactly the file that worked on the real GO 950 Live on 27 Nov 2026 (test B). */
+    @Test fun gl2TrimMatchesDeviceTest() {
+        val orig = File("/media/skinnie/05a64eef-3fdf-450f-aaf7-09748f80297c/go950-device-backup-2026-11-26/gps-log-test/drive2-qgf/lto.dat")
+        val tested = File("/media/skinnie/05a64eef-3fdf-450f-aaf7-09748f80297c/tomtom-fixes/go950-gps/variants/B-drop-new-sbas4.dat")
+        if (!orig.isFile || !tested.isFile) return
+        assertContentEquals(tested.readBytes(), trimLtoForGl2(orig.readBytes()))
+    }
+
     @Test fun gl1EngineFromRealTtsystem() {
         val ttsystem = File("/media/skinnie/05a64eef-3fdf-450f-aaf7-09748f80297c/tomtom-fixes/old-navcores/x/navcore_7.900.9180.one-onev3/ttsystem")
         if (!ttsystem.isFile) return

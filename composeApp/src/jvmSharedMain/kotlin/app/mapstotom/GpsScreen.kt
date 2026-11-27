@@ -142,7 +142,7 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val quick = when {
         chip.quickFixProvider == null -> Check(Status.NONE, "QuickGPSFix", "Not available for this GPS chip.")
         v.quickFix.files.isEmpty() && v.quickFixOff -> Check(Status.NONE, "QuickGPSFix turned off",
-            "Removed on purpose, so it isn't added by itself. Some TomToms find no fix at all with it. Send it to try again.")
+            "Removed on purpose, so it isn't added by itself. Send it to use it again.")
         v.quickFix.files.isEmpty() -> Check(Status.WARN, "QuickGPSFix not installed", "The first fix takes longer without it.")
         qfDamaged -> Check(Status.BAD, "QuickGPSFix is damaged", "The lto.dat checksum fails. Send a new one.")
         qfIgnored -> Check(Status.BAD, "QuickGPSFix not used by the GPS",

@@ -9,7 +9,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = "1.0.2"
+val appVersion = "1.0.3"
 
 kotlin {
     // Android and desktop are both JVM, so the app logic lives in one shared
@@ -72,7 +72,7 @@ android {
         applicationId = "app.mapstotom"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
+        versionCode = 4
         versionName = appVersion
     }
     compileOptions {

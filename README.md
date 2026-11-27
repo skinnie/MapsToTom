@@ -111,8 +111,13 @@ The **GPS** tab works out which GPS chip the TomTom has and offers what that chi
   same amount (the orbit data itself is untouched) for GPS program versions it has tested:
   GLL 185.5001.041 (NavCore 8.x/9.x and the community packs, tested on a ONE v4) and GLL 185.5.039
   (NavCore 7.x, tested in an emulator: same week code). On a ONE v4 that took the fix from always 4
-  satellites to 9-10, and the first fix after switching on from a minute to a few seconds. Other
-  chips and untested versions get TomTom's file as it is.
+  satellites to 9-10, and the first fix after switching on from a minute to a few seconds. Untested
+  GL1 versions and SiRF get TomTom's file as it is.
+- **QuickGPSFix on GL2**: the Broadcom GPS program (glgps 2.16.201, the NavCore 9.541 driver) keeps
+  crashing on today's file: grey satellites, no fix, restarts. The file now lists 12 SBAS
+  (EGNOS/WAAS) satellites where 2019 files listed 4. MapsToTom keeps only those 4 and leaves out
+  the parts added since 2019; the orbit data is untouched. Tested on a GO 950 Live: a fix with 10
+  satellites in seconds instead of none.
 - **TTconv** (by treysis) corrects the date the GPS reports after the April 2019 week rollover.
   MapsToTom's version restarts the converter by itself when it stops, which is when the TomTom
   seems to lose the satellites, and logs each restart to `gl/log/ttconv.log`.

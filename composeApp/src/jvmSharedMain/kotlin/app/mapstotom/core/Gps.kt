@@ -70,7 +70,8 @@ fun downloadQuickFix(chip: Chip, net: Net): QuickFix {
 }
 
 /** Put QuickGPSFix on the device. On a GL1 whose GPS program has the week bug (see [ltoWeekShift])
- *  lto.dat's dates are first moved to that program's calendar. Returns a note when that happened. */
+ *  lto.dat's dates are first moved to that program's calendar; on a GL2 it is trimmed (see [trimLtoForGl2]).
+ *  Returns a note when the file was changed. */
 fun installQuickFix(fs: DeviceFs, q: QuickFix, chip: Chip): String? {
     if (fs.exists(QUICKFIX_OFF)) fs.delete(QUICKFIX_OFF)
     val engine = if (q.files.containsKey("lto.dat") && chip == Chip.GL1) gl1EngineVersion(fs) else null
@@ -82,6 +83,8 @@ fun installQuickFix(fs: DeviceFs, q: QuickFix, chip: Chip): String? {
 /** The files for a TomTom with this chip and GPS program [engine], and a note when the dates had to be moved. */
 private fun adaptQuickFix(q: QuickFix, chip: Chip, engine: String?): Pair<Map<String, ByteArray>, String?> {
     val lto = q.files["lto.dat"]
+    if (lto != null && chip == Chip.GL2) return (q.files + ("lto.dat" to trimLtoForGl2(lto))) to
+        "Trimmed for this TomTom's GPS program, which stops working on the full file."
     val shift = if (lto != null && chip == Chip.GL1) ltoWeekShift(lto, engine) else 0
     if (lto == null || shift == 0) return q.files to null
     return (q.files + ("lto.dat" to shiftLto(lto, shift))) to
@@ -103,8 +106,8 @@ fun quickFixCarFiles(q: QuickFix, chip: Chip, engine: String?): Pair<List<Pair<S
 }
 
 /**
- * Some TomToms find no fix at all while QuickGPSFix is on them (a GO 950 Live, Broadcom GL2: satellites heard, none
- * used), and fix quickly without it. Removing it leaves this note in ephem/ (the TomTom ignores it), so no copy of
+ * A TomTom whose owner finds it fixes better without QuickGPSFix (before [trimLtoForGl2], a GL2 found no fix at all
+ * with it). Removing it leaves this note in ephem/ (the TomTom ignores it), so no copy of
  * the app adds it back by itself. Sending QuickGPSFix on purpose deletes the note.
  */
 const val QUICKFIX_OFF = "ephem/MapsToTom-no-QuickGPSFix.txt"
@@ -117,6 +120,57 @@ fun removeQuickFix(fs: DeviceFs) {
     listOf("lto.dat", "packedephemeris.ee", "ee_meta.txt").forEach { if (fs.exists("ephem/$it")) fs.delete("ephem/$it") }
     fs.write(QUICKFIX_OFF, ("QuickGPSFix was removed from this TomTom with MapsToTom, so MapsToTom won't add it back by itself.\r\n" +
         "Send it from the GPS tab to use it again (that deletes this file).\r\n").toByteArray(Charsets.US_ASCII))
+}
+
+// ------------------------------------------------------------------ QuickGPSFix on GL2
+
+/* The GL2 GPS program (glgps; tested: 2.16.201, the NavCore 9.541 driver on a GO 950 Live) keeps crashing while
+ * today's lto.dat is on the TomTom: grey satellites, no fix, restarts. The cause is chunk 0x55bbaa55, the list of
+ * SBAS (EGNOS/WAAS) satellites as (u16 PRN, s16 longitude x 10): files from 2019 list 4, today's 12. With the list cut
+ * to the 4 PRNs of the 2019 files (and the chunk types added since 2019 left out) the same file gave a 10-satellite
+ * fix in seconds and no crash (27 Nov 2026); the full list with only the new chunks left out still crashed.
+ * The orbit data is not touched. */
+
+/** Chunk types in the 2019 files, the only ones the GL2 program has been seen working with. */
+val LTO_CHUNKS_2019 = setOf(0x075a0de5L, 0x00bbcc00L, 0xaa11aaccL, 0xa1aca1acL, 0x55bbaa55L, 0x11113333L, 0x11114444L, 0xffccffccL, 0xaabbccddL)
+/** SBAS satellites kept for GL2: the ones in the 2019 files (MSAS 129, 137; WAAS 135, 138). */
+val GL2_SBAS_PRNS = setOf(129, 135, 137, 138)
+private const val LTO_SBAS_CHUNK = 0x55bbaa55L
+
+/** lto.dat as the GL2 program can use it: only [LTO_CHUNKS_2019], the SBAS list cut to [GL2_SBAS_PRNS],
+ *  size and MD5 recomputed. A file that is already like that comes back unchanged. */
+fun trimLtoForGl2(lto: ByteArray): ByteArray {
+    require(ltoValid(lto)) { "lto.dat failed its checksum" }
+    val body = java.io.ByteArrayOutputStream()
+    fun put32(v: Long) { for (b in 0..3) body.write(((v shr (8 * b)) and 0xff).toInt()) }
+    var o = 0x1c
+    while (o + 8 <= lto.size) {
+        val tag = u32(lto, o); val len = u32(lto, o + 4)
+        require(o + 8 + len <= lto.size) { "Unexpected lto.dat layout" }
+        var chunk = lto.copyOfRange(o + 8, o + 8 + len.toInt())
+        o += 8 + len.toInt()
+        if (tag !in LTO_CHUNKS_2019) continue
+        if (tag == LTO_SBAS_CHUNK && chunk.size >= 4) {
+            val head = u32(chunk, 0)
+            val n = (head shr 16).toInt()
+            require(chunk.size >= 4 + 4 * n) { "Unexpected SBAS list in lto.dat" }
+            val keep = (0 until n).map { chunk.copyOfRange(4 + 4 * it, 8 + 4 * it) }
+                .filter { e -> ((e[0].toInt() and 0xff) or ((e[1].toInt() and 0xff) shl 8)) in GL2_SBAS_PRNS }
+            val out = java.io.ByteArrayOutputStream()
+            val h = (head and 0xffff) or (keep.size.toLong() shl 16)
+            for (b in 0..3) out.write(((h shr (8 * b)) and 0xff).toInt())
+            keep.forEach { out.write(it) }
+            chunk = out.toByteArray()
+        }
+        put32(tag); put32(chunk.size.toLong()); body.write(chunk)
+    }
+    require(o == lto.size) { "Unexpected lto.dat layout" }
+    val b = body.toByteArray()
+    val out = lto.copyOfRange(0, 0x1c) + b
+    val size = (0x1c - 8 + b.size).toLong()
+    for (i in 0..3) out[4 + i] = (size shr (8 * i)).toByte()
+    MessageDigest.getInstance("MD5").digest(b).copyInto(out, 0x0c)
+    return out
 }
 
 // ------------------------------------------------------------------ QuickGPSFix and the 2019 week rollover (GL1)
