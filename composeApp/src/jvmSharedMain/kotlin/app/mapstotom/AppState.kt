@@ -249,6 +249,8 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
 
     private fun checkQuickFix(d: DeviceInfo) {
         if (d.chip.chip.quickFixProvider == null) return
+        // Removed on purpose (this TomTom finds no fix with it): no update and no reminder.
+        if (runCatching { quickFixTurnedOff(d.fs) }.getOrDefault(false)) { rememberExpiry(null); return }
         val onDevice = runCatching { quickFixOnDevice(d.fs) }.getOrNull()
         val exp = onDevice?.expiry
         rememberExpiry(exp)
@@ -500,8 +502,8 @@ class AppState(val platform: Platform, private val scope: CoroutineScope, privat
     }
 
     fun removeQuickFix() = work("Removing QuickGPSFix…", Job.GPS) {
-        app.mapstotom.core.removeQuickFix(requireDevice().fs); gen++
-        say("QuickGPSFix removed. The TomTom will find satellites without help (slower first fix).")
+        app.mapstotom.core.removeQuickFix(requireDevice().fs); rememberExpiry(null); gen++
+        say("QuickGPSFix removed. MapsToTom won't add it back by itself; send it from here to use it again.")
     }
 
     @OptIn(ExperimentalResourceApi::class)

@@ -72,6 +72,7 @@ fun downloadQuickFix(chip: Chip, net: Net): QuickFix {
 /** Put QuickGPSFix on the device. On a GL1 whose GPS program has the week bug (see [ltoWeekShift])
  *  lto.dat's dates are first moved to that program's calendar. Returns a note when that happened. */
 fun installQuickFix(fs: DeviceFs, q: QuickFix, chip: Chip): String? {
+    if (fs.exists(QUICKFIX_OFF)) fs.delete(QUICKFIX_OFF)
     val engine = if (q.files.containsKey("lto.dat") && chip == Chip.GL1) gl1EngineVersion(fs) else null
     val (files, note) = adaptQuickFix(q, chip, engine)
     files.forEach { (name, data) -> fs.write("ephem/$name", data) }
@@ -101,8 +102,21 @@ fun quickFixCarFiles(q: QuickFix, chip: Chip, engine: String?): Pair<List<Pair<S
     return listOf("ephem/$dataName" to files.getValue(dataName), "ephem/ee_meta.txt" to meta) to note
 }
 
+/**
+ * Some TomToms find no fix at all while QuickGPSFix is on them (a GO 950 Live, Broadcom GL2: satellites heard, none
+ * used), and fix quickly without it. Removing it leaves this note in ephem/ (the TomTom ignores it), so no copy of
+ * the app adds it back by itself. Sending QuickGPSFix on purpose deletes the note.
+ */
+const val QUICKFIX_OFF = "ephem/MapsToTom-no-QuickGPSFix.txt"
+
+/** Off when the note is there and no QuickGPSFix is (one sent over the car link, which can't delete the note, turns it back on). */
+fun quickFixTurnedOff(fs: DeviceFs) =
+    fs.exists(QUICKFIX_OFF) && listOf("lto.dat", "packedephemeris.ee").none { fs.exists("ephem/$it") }
+
 fun removeQuickFix(fs: DeviceFs) {
     listOf("lto.dat", "packedephemeris.ee", "ee_meta.txt").forEach { if (fs.exists("ephem/$it")) fs.delete("ephem/$it") }
+    fs.write(QUICKFIX_OFF, ("QuickGPSFix was removed from this TomTom with MapsToTom, so MapsToTom won't add it back by itself.\r\n" +
+        "Send it from the GPS tab to use it again (that deletes this file).\r\n").toByteArray(Charsets.US_ASCII))
 }
 
 // ------------------------------------------------------------------ QuickGPSFix and the 2019 week rollover (GL1)

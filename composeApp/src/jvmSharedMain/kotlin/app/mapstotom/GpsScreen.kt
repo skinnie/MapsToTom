@@ -18,6 +18,8 @@ import java.time.ZonedDateTime
 
 private class GpsView(
     val quickFix: QuickFix,
+    /** QuickGPSFix was removed on purpose: the app doesn't add it back by itself. */
+    val quickFixOff: Boolean,
     val ttconv: TtconvState,
     val glgps: GlgpsState,
     val clockFix: Boolean,
@@ -113,7 +115,7 @@ fun ColumnScope.GpsScreen(state: AppState) {
         NeedDevice(state); return
     }
     val load by produceLoad(d, state.gen) {
-        GpsView(quickFixOnDevice(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
+        GpsView(quickFixOnDevice(d.fs), quickFixTurnedOff(d.fs), ttconvState(d.fs), glgpsState(d.fs), clockFixInstalled(d.fs),
             d.fs.exists("gl/debug-gltt"), clockLooksWrong(d.fs),
             if (d.chip.chip == Chip.GL1) gl1EngineVersion(d.fs)?.takeIf { it in LTO_WEEK_BUG_ENGINES } else null,
             if (d.chip.chip == Chip.GL1) almanacInfo(d.fs) else null)
@@ -139,6 +141,8 @@ fun ColumnScope.GpsScreen(state: AppState) {
     val qfAdjusted = v.weekBugEngine != null && (ltoWeekOffset(v.quickFix) ?: 0) != 0
     val quick = when {
         chip.quickFixProvider == null -> Check(Status.NONE, "QuickGPSFix", "Not available for this GPS chip.")
+        v.quickFix.files.isEmpty() && v.quickFixOff -> Check(Status.NONE, "QuickGPSFix turned off",
+            "Removed on purpose, so it isn't added by itself. Some TomToms find no fix at all with it. Send it to try again.")
         v.quickFix.files.isEmpty() -> Check(Status.WARN, "QuickGPSFix not installed", "The first fix takes longer without it.")
         qfDamaged -> Check(Status.BAD, "QuickGPSFix is damaged", "The lto.dat checksum fails. Send a new one.")
         qfIgnored -> Check(Status.BAD, "QuickGPSFix not used by the GPS",

@@ -80,6 +80,21 @@ class GpsTest {
         assertFails { quickFixCarFiles(q, Chip.SIRF, null) }
     }
 
+    @Test fun removedQuickFixStaysOffUntilSentAgain() {
+        val fs = tmp()
+        val q = QuickFix(mapOf("lto.dat" to fakeLto(listOf(2442 * 604_800L)), "ee_meta.txt" to "Expiry=1796159528".toByteArray()), null)
+        assertFalse(quickFixTurnedOff(fs), "never removed")
+        installQuickFix(fs, q, Chip.GL2)
+        removeQuickFix(fs)
+        assertTrue(quickFixTurnedOff(fs))
+        assertNull(fs.read("ephem/lto.dat")); assertNull(fs.read("ephem/ee_meta.txt"))
+        installQuickFix(fs, q, Chip.GL2)
+        assertFalse(quickFixTurnedOff(fs)); assertFalse(fs.exists(QUICKFIX_OFF), "sending it on purpose deletes the note")
+        // The car link writes the files but can't delete the note: a QuickGPSFix on the card still means it's on.
+        removeQuickFix(fs); fs.write("ephem/lto.dat", q.files.getValue("lto.dat"))
+        assertFalse(quickFixTurnedOff(fs))
+    }
+
     @Test fun installQuickFixAdjustsOnlyTestedGl1() {
         val week = 604_800L
         val gpsNow = 2442 * week + 500_000
