@@ -14,7 +14,9 @@ object LinkWiring {
     /** The in-app Live services for 192.168.77.1:8080. [setting] reads app settings; [dir] keeps logins and fuel sets. */
     fun liveService(setting: (String) -> String?, dir: File): LocalService {
         val net = RealNet()
+        val fuel = StoredFuelSets(dir, net, CarLinkState::log)
+        fuel.warm()   // old saved prices are refreshed in the background while the TomTom connects
         return LiveServer(net, { setting(CarLinkSettings.TRAFFIC_KEY)?.takeIf { it.isNotBlank() } },
-            StoredFuelSets(dir, net, CarLinkState::log), FileLiveStore(dir), CarLinkState::log, CarOutbox.at(File(dir, "outbox")))
+            fuel, FileLiveStore(dir), CarLinkState::log, CarOutbox.at(File(dir, "outbox")))
     }
 }

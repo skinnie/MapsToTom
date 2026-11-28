@@ -252,7 +252,10 @@ internal fun franceStations(xml: ByteArray): List<FuelStation> {
     var addr = ""; var town = ""
     val text = StringBuilder()
     val byName = HashMap<String, Int>()
-    factory.newSAXParser().parse(xml.inputStream(), object : org.xml.sax.helpers.DefaultHandler() {
+    // Android's parser ignores the encoding in the XML declaration and reads UTF-8, so it is passed on (the feed is ISO-8859-1)
+    val declared = Regex("^<\\?xml[^>]*encoding=[\"']([A-Za-z0-9._-]+)").find(String(xml, 0, minOf(xml.size, 200), Charsets.ISO_8859_1))?.groupValues?.get(1)
+    val source = org.xml.sax.InputSource(xml.inputStream()).apply { declared?.let { encoding = it } }
+    factory.newSAXParser().parse(source, object : org.xml.sax.helpers.DefaultHandler() {
         override fun startElement(uri: String?, localName: String?, qName: String, a: org.xml.sax.Attributes) {
             text.setLength(0)
             when (qName) {

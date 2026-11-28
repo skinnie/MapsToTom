@@ -38,6 +38,28 @@ class LinkService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
 
+    /** Channel of the open listener, and the one to move to when a TomTom with another remembered channel shows up. */
+    @Volatile private var listeningOn: Int? = null
+    @Volatile private var moveTo: Int? = null
+
+    /**
+     * Each TomTom redials the channel it found when it paired, so with two TomToms the listener must follow whichever one
+     * is around: when a paired TomTom connects (it does that before it dials), listen on its channel.
+     */
+    private val aclReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(context: Context, intent: Intent) {
+            val device = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)) ?: return
+            if (!isTomTom(device) || CarLinkState.phase.value != Phase.WAITING) return
+            val want = getSharedPreferences("mapstotom", Context.MODE_PRIVATE).getInt(channelKey(device.address), -1)
+            if (want <= 0 || want == listeningOn) return
+            CarLinkState.log("${runCatching { device.name }.getOrNull() ?: "A TomTom"} is here: listening on its channel $want")
+            moveTo = want
+            runCatching { server?.close() }   // accept() fails and the loop reopens on [moveTo]
+        }
+    }
+
     /** The TomTom this service is pairing with. The PIN is only ever given to it. */
     @Volatile private var pairingWith: String? = null
 
@@ -45,7 +67,13 @@ class LinkService : Service() {
         @SuppressLint("MissingPermission")
         override fun onReceive(context: Context, intent: Intent) {
             val device = deviceIn(intent) ?: return
-            if (device.address != pairingWith) return
+            // Ours: the pairing this service started. A TomTom that starts pairing itself (the GO 950 does, and retries
+            // every few seconds) gets the same fixed PIN, otherwise Android opens a PIN box for every retry.
+            if (device.address != pairingWith) {
+                if (intent.action != BluetoothDevice.ACTION_PAIRING_REQUEST || !isTomTom(device)) return
+                pairingWith = device.address
+                CarLinkState.log("The TomTom asked to pair")
+            }
             when (intent.action) {
                 BluetoothDevice.ACTION_PAIRING_REQUEST ->
                     if (intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, -1) == BluetoothDevice.PAIRING_VARIANT_PIN) {
@@ -78,6 +106,9 @@ class LinkService : Service() {
             }
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(pairingReceiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(pairingReceiver, filter)
+            val acl = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED)
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(aclReceiver, acl, Context.RECEIVER_EXPORTED)
+            else registerReceiver(aclReceiver, acl)
             worker = Thread(::serveLoop, "car-link").apply { isDaemon = true; start() }
             Thread(::knockLoop, "car-link-knock").apply { isDaemon = true; start() }
         }
@@ -87,6 +118,7 @@ class LinkService : Service() {
     override fun onDestroy() {
         running = false
         runCatching { unregisterReceiver(pairingReceiver) }
+        runCatching { unregisterReceiver(aclReceiver) }
         runCatching { server?.close() }
         CarLinkState.set(Phase.OFF)
         CarLinkState.log("Link stopped")
@@ -108,13 +140,15 @@ class LinkService : Service() {
         var listener: android.bluetooth.BluetoothServerSocket? = null
         while (running) {
             try {
-                val ss = listener ?: listenOnRememberedChannel(adapter, prefs).also { listener = it; server = it }
+                val ss = listener ?: listenOnRememberedChannel(adapter, prefs, moveTo).also { listener = it; server = it; moveTo = null; listeningOn = channelOf(it) }
                 CarLinkState.set(Phase.WAITING)
                 CarLinkState.log("Waiting for the TomTom (phone \"${runCatching { adapter.name }.getOrNull() ?: "?"}\")")
                 val sock = ss.accept()
                 CarLinkState.set(Phase.MODEM)
                 CarLinkState.log("TomTom connected: ${runCatching { sock.remoteDevice.name ?: sock.remoteDevice.address }.getOrNull()}")
-                if (isTomTom(sock.remoteDevice)) channelOf(ss)?.let { prefs.edit().putInt(DUN_CHANNEL_KEY, it).apply() }
+                if (isTomTom(sock.remoteDevice)) channelOf(ss)?.let {
+                    prefs.edit().putInt(DUN_CHANNEL_KEY, it).putInt(channelKey(sock.remoteDevice.address), it).apply()
+                }
                 pairIfNeeded(sock.remoteDevice)
                 try {
                     sock.use { LinkWiring.runSession(it.inputStream, it.outputStream, host) }
@@ -124,10 +158,11 @@ class LinkService : Service() {
                 CarLinkState.log("TomTom hung up")
             } catch (e: Exception) {
                 if (!running) break
-                CarLinkState.log("Bluetooth: ${e.message ?: e.javaClass.simpleName}")
+                val moving = moveTo != null
+                if (!moving) CarLinkState.log("Bluetooth: ${e.message ?: e.javaClass.simpleName}")
                 runCatching { listener?.close() }
                 listener = null
-                Thread.sleep(2000)
+                if (!moving) Thread.sleep(2000)
             }
         }
         runCatching { listener?.close() }
@@ -183,8 +218,8 @@ class LinkService : Service() {
      * open at a time: closing a second socket for the same service breaks the one that stays.
      */
     @SuppressLint("MissingPermission")
-    private fun listenOnRememberedChannel(adapter: android.bluetooth.BluetoothAdapter, prefs: android.content.SharedPreferences): BluetoothServerSocket {
-        val want = prefs.getInt(DUN_CHANNEL_KEY, -1)
+    private fun listenOnRememberedChannel(adapter: android.bluetooth.BluetoothAdapter, prefs: android.content.SharedPreferences, channel: Int? = null): BluetoothServerSocket {
+        val want = channel ?: prefs.getInt(DUN_CHANNEL_KEY, -1)
         repeat(if (want > 0) MAX_CHANNEL_TRIES else 1) {
             val s = adapter.listenUsingInsecureRfcommWithServiceRecord("Dial-up Networking", DUN_UUID)
             val got = channelOf(s)
@@ -244,6 +279,8 @@ class LinkService : Service() {
     companion object {
         private const val TOMTOM_PIN = "0000"
         private const val DUN_CHANNEL_KEY = "carLink.dunChannel"
+        /** The channel one TomTom (by Bluetooth address) dialled last; [DUN_CHANNEL_KEY] is the last one of any. */
+        private fun channelKey(address: String) = "$DUN_CHANNEL_KEY.${address.uppercase()}"
         private const val MAX_CHANNEL_TRIES = 35
         private val KNOCK_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
         private const val KNOCK_FAST = 15

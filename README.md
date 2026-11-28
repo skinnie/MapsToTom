@@ -259,7 +259,9 @@ PPP link itself, and answers the Live services on 192.168.77.1:8080 from public 
   (Car link tab). Without a key the TomTom gets no incidents.
 - **Weather:** Open-Meteo, no key.
 - **Fuel prices:** today's prices for the fuel set installed from this phone (POIs tab), from the
-  same open sources. Portugal's source is slow, so its first answer of the hour may come late.
+  same open sources. The phone keeps the last prices and answers at once, and refreshes them in the
+  background every hour. The first request for a fuel type has to download the prices, which can take a few
+  minutes for big countries; if the TomTom gives up, ask again a little later.
 - Anything else the TomTom opens goes to the internet through the phone.
 
 The TomTom's card needs, once: a NavCore patched for the link and discovery files pointing at
@@ -273,8 +275,10 @@ update. If it has none, look for a later NavCore on GPS and navigation device fo
 menu with PIN 0000. Android shows a notification while the link runs. Phones that already offer
 their own Bluetooth dial-up (some Samsungs) may be picked instead of MapsToTom.
 Status: the link and the services pass the tests (22 recorded TomTom requests answered byte for
-byte, plus a whole dial-up session); the same design was verified on a real ONE v4 with a laptop as
-the phone. Not yet tried with an Android phone.
+byte, plus a whole dial-up session) and work in real use with an Android tablet on a ONE v4 and a
+GO 950 LIVE (NavCore 9.541): traffic, weather and fuel prices. Other TomToms, what needs patching and
+what doesn't, and the GO 950 patch: [docs/car-link-other-devices.md](docs/car-link-other-devices.md).
+We don't build patches for other devices.
 
 MapsToTom needs Android 8 or newer. For an old rooted Android 4.0–4.1 phone kept in the car, the
 separate **TT Link** app does the same job with the same services (written in Go, tested against the

@@ -91,7 +91,10 @@ class LiveServer(
     }
 
     fun respond(method: String, path: String, body: ByteArray = ByteArray(0)): Reply {
-        val p = path.substringBefore('?'); val query = path.substringAfter('?', "")
+        val query = path.substringAfter('?', "")
+        // The TomTom keeps the service list it fetched and only asks again when the address in servicediscovery.txt
+        // changes (it drops any "?query"), so /proxy/<anything>/directory.php is the same list: bump the path to refetch.
+        val p = path.substringBefore('?').let { if (it.startsWith("/proxy/") && it.endsWith("/directory.php")) "/proxy/directory.php" else it }
         log("live: $method $p")
         if (method == "POST") {
             if (p != "/h204") return text(XMsg.reply(emptyList(), 204))
@@ -165,11 +168,20 @@ class LiveServer(
     companion object {
         val APN_TEST_MAGIC = "A9PxN7O3Kv-*26_`.?/e~=XxYq@".toByteArray(Charsets.US_ASCII)   // ttn VA 0x77203c
 
+        /**
+         * Traffic keys of the maps the car link knows: a map's traffic.dat lines 2 and 3 (service key, product code).
+         * The TomTom only asks for traffic when the discovery and the account have its own map's key.
+         */
+        private val MAP_TRAFFIC = listOf(
+            "NTadespt" to "301E17F32843842C10C07",                               // Iberia (ONE v4)
+            "NTweu" to "409A01F32D01501C10701C07601817301E17843842933C12242",  // Western Europe (GO 950, Europe Zone 4)
+        )
+
         /** Subscription rows for AccountInfo (docs/captured_requests.md); 13 columns as NavCore reads them. */
         private val PRODUCTS = listOf("SPD_DD", "SPD_DDS", "SPD_GD", "SPD_MD", "SPD_PD", "SPD_CD", "SPD_NV", "SPD_VD", "SPD_RT",
             "SPD_CU", "SPD_SD", "ROADCONDITIONS", "FUELPRICES", "LOCALSEARCH", "TRACK", "DYNSC", "BUDDY", "MISC", "NAVTRAFFIC",
-            "WEATHER2", "NTadespt", "301E17F32843842C10C07")
-        private val TRAFFIC = setOf("NAVTRAFFIC", "NTadespt", "301E17F32843842C10C07")
+            "WEATHER2") + MAP_TRAFFIC.flatMap { it.toList() }
+        private val TRAFFIC = setOf("NAVTRAFFIC") + MAP_TRAFFIC.flatMap { it.toList() }
 
         fun accountRows(start: Long = 1262304000, expiry: Long = 2147000000): List<List<ByteArray>> = PRODUCTS.map { p ->
             listOf(p, "$start", "$expiry", "1", "1", "1", "live", "live", "1", if (p in TRAFFIC) "2" else "0", "", "1", "1")
@@ -193,7 +205,7 @@ class LiveServer(
                 "WEATHER2" to listOf("WEATHER" to "$base/weather"),
                 "LOCALSEARCH" to listOf("LOCALSEARCH" to "$base/localsearch"),
                 "APN" to listOf("APN_LOG" to "$base/apn", "TEST_BIN" to "$base/apn_test"),
-                "NAVTRAFFIC" to listOf("NTadespt" to "$base/portland", "NAVTRAFFIC" to "$base/portland"),
+                "NAVTRAFFIC" to MAP_TRAFFIC.map { it.first to "$base/portland" } + ("NAVTRAFFIC" to "$base/portland"),
             )
             for ((g, k) in listOf("LOGON" to "LOGON", "PRODACT" to "PRODACT", "SVCACT" to "SVCACT", "ACCOUNT" to "ACCOUNT",
                 "ACCOUNT2" to "ACCOUNT", "MESSAGE" to "MESSAGE", "BUDDY" to "BUDDY", "DYNSC" to "DYNSC", "FUELPRICES" to "FUELPRICES",
